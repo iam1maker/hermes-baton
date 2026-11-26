@@ -51,6 +51,19 @@ if [ "$WITH_DESKTOP" = "yes" ]; then
     echo "→ 桌面半 → $DESKTOP_DIR"
     mkdir -p "$DESKTOP_DIR"
     cp -R "$SRC/desktop/." "$DESKTOP_DIR/"
+    # 刻意让这份副本与插件包内的 desktop/plugin.js 字节不同：Hermes 每次启动都会跑
+    # reconcileUnifiedDesktopHalves，只有当两处 plugin.js 完全相同才写 .hermes-package.json
+    # 把目录收编为「统一包的桌面半」，而带 marker 的包在 runtime-loader 里是 opt-in
+    # （defaultEnabled=false），侧栏不会出现入口。保持 marker-less 时它按用户自装插件加载。
+    if ! grep -q '\[本机副本\]' "$DESKTOP_DIR/plugin.js" 2>/dev/null; then
+      cat >> "$DESKTOP_DIR/plugin.js" <<'MARK'
+
+// [本机副本] 刻意与插件包内 desktop/plugin.js 保持字节不同 —— Hermes 的 reconcile 只有在
+// 「与包内源文件完全相同」时才把该目录收编为统一包的 desktop 半（写 .hermes-package.json，
+// 于是 runtime-loader 的 defaultEnabled=false，必须手动启用一次）。保持 marker-less 时它按
+// 「用户自己放的桌面插件」加载：默认启用，也不会被包更新覆盖。同步包内代码时别带上这一段。
+MARK
+    fi
   else
     echo "! 仓库里没有 desktop/plugin.js，跳过桌面半" >&2
   fi
