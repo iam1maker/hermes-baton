@@ -13,8 +13,8 @@
  * the same text. Every override is an env var so a second install can point at
  * its own copies:
  *
- *   REMOTE_MIC_MODEL_DIR  (…/sensevoice-onnx)   REMOTE_MIC_VAD_MODEL (…/silero_vad.onnx)
- *   REMOTE_MIC_SHERPA     (…/sherpa-onnx-node)
+ *   BATON_MODEL_DIR / BATON_VAD_MODEL / BATON_SHERPA
+ *   (legacy REMOTE_MIC_* names still work)
  */
 
 import { existsSync, readdirSync } from 'node:fs'
@@ -23,6 +23,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 const HOME = homedir()
+const envAny = (key) => process.env[`BATON_${key}`] || process.env[`REMOTE_MIC_${key}`]
 
 export const DEFAULT_MODEL_DIR = join(
   HOME,
@@ -33,7 +34,7 @@ export const DEFAULT_VAD_MODEL = join(HOME, '.dsh/speech-to-text/sensevoice/mode
 /** Where the native binding may live, most specific first. */
 function sherpaCandidates() {
   const out = []
-  if (process.env.REMOTE_MIC_SHERPA) out.push(process.env.REMOTE_MIC_SHERPA)
+  if (envAny('SHERPA')) out.push(envAny('SHERPA'))
   out.push(join(import.meta.dirname, 'node_modules/sherpa-onnx-node'))
   out.push(join(HOME, '.dsh/profiles/desktop/node_modules/sherpa-onnx-node'))
   out.push(join(HOME, '.dsh/profiles/node_modules/sherpa-onnx-node'))
@@ -64,8 +65,8 @@ function loadSherpa() {
 
 /** Resolve the on-disk model set, explaining exactly what is missing. */
 export function resolveModelPaths({ modelDir, vadModel, modelFile, precision } = {}) {
-  const dir = modelDir || process.env.REMOTE_MIC_MODEL_DIR || DEFAULT_MODEL_DIR
-  const vad = vadModel || process.env.REMOTE_MIC_VAD_MODEL || DEFAULT_VAD_MODEL
+  const dir = modelDir || envAny('MODEL_DIR') || DEFAULT_MODEL_DIR
+  const vad = vadModel || envAny('VAD_MODEL') || DEFAULT_VAD_MODEL
   const models = existsSync(dir)
     ? readdirSync(dir).filter(name => name.endsWith('.onnx')).map(name => join(dir, name))
     : []
@@ -74,12 +75,12 @@ export function resolveModelPaths({ modelDir, vadModel, modelFile, precision } =
   const notes = []
   const explicit = modelFile
     ? (modelFile.startsWith('/') ? modelFile : join(dir, modelFile))
-    : process.env.REMOTE_MIC_MODEL_FILE
-      ? (process.env.REMOTE_MIC_MODEL_FILE.startsWith('/')
-          ? process.env.REMOTE_MIC_MODEL_FILE
-          : join(dir, process.env.REMOTE_MIC_MODEL_FILE))
+    : envAny('MODEL_FILE')
+      ? (envAny('MODEL_FILE').startsWith('/')
+          ? envAny('MODEL_FILE')
+          : join(dir, envAny('MODEL_FILE')))
       : ''
-  const want = String(precision || process.env.REMOTE_MIC_MODEL_PRECISION || 'int8').toLowerCase()
+  const want = String(precision || envAny('MODEL_PRECISION') || 'int8').toLowerCase()
   // 同目录里可能躺着 VAD（silero_vad.onnx）之类的其它 onnx，不能当成 ASR 权重。
   const isAsr = file => file.endsWith('.onnx') && !/vad|silero/i.test(file)
   const int8 = models.find(file => file.endsWith('.int8.onnx'))

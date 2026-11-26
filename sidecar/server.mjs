@@ -13,9 +13,9 @@
  *
  *   node server.mjs [--port 8791] [--state-dir ~/.hermes/baton]
  *
- * Env: REMOTE_MIC_PORT, REMOTE_MIC_STATE_DIR, REMOTE_MIC_BRIDGE,
- *      REMOTE_MIC_PARENT_PID (exit when that process is gone),
- *      REMOTE_MIC_MODEL_DIR / REMOTE_MIC_VAD_MODEL / REMOTE_MIC_SHERPA.
+ * Env: BATON_PORT, BATON_STATE_DIR, BATON_BRIDGE, BATON_PARENT_PID,
+ *      BATON_MODEL_DIR / BATON_VAD_MODEL / BATON_SHERPA
+ *      (legacy REMOTE_MIC_* names still work).
  */
 
 import { createServer } from 'node:http'
@@ -132,16 +132,16 @@ function argsFrom(argv) {
 }
 
 const argv = argsFrom(process.argv.slice(2))
-const PORT = Number(process.env.REMOTE_MIC_PORT || argv.port || 8791)
+const envAny = (key) => process.env[`BATON_${key}`] || process.env[`REMOTE_MIC_${key}`]
+const PORT = Number(envAny('PORT') || argv.port || 8791)
 const STATE_DIR = resolvePath(
-  process.env.BATON_STATE_DIR
-  || process.env.REMOTE_MIC_STATE_DIR
+  envAny('STATE_DIR')
   || argv.stateDir
   || join(HOME, '.hermes', 'baton')
 )
-const PARENT_PID = Number(process.env.REMOTE_MIC_PARENT_PID || argv.parentPid || 0)
+const PARENT_PID = Number(envAny('PARENT_PID') || argv.parentPid || 0)
 const BRIDGE_PATH = resolvePath(
-  process.env.REMOTE_MIC_BRIDGE || join(ROOT, 'bin', 'atvv-link')
+  envAny('BRIDGE') || join(ROOT, 'bin', 'atvv-link')
 )
 
 mkdirSync(STATE_DIR, { recursive: true })

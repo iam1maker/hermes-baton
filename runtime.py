@@ -36,7 +36,7 @@ STATE_DIR = Path(
     or os.environ.get("REMOTE_MIC_STATE_DIR")
     or (Path.home() / ".hermes" / "baton")
 )
-PORT = int(os.environ.get("REMOTE_MIC_PORT") or 8791)
+PORT = int(os.environ.get("BATON_PORT") or os.environ.get("REMOTE_MIC_PORT") or 8791)
 BASE = f"http://127.0.0.1:{PORT}"
 
 _SPAWNED: subprocess.Popen | None = None
@@ -49,6 +49,7 @@ _SELF_HEALED = False
 
 def _node_binary() -> str | None:
     for candidate in (
+        os.environ.get("BATON_NODE"),
         os.environ.get("REMOTE_MIC_NODE"),
         shutil.which("node"),
         str(Path.home() / ".local" / "bin" / "node"),
@@ -122,7 +123,7 @@ def _looks_like_ours(pid: int) -> bool:
 def _spawn() -> subprocess.Popen:
     node = _node_binary()
     if node is None:
-        raise RuntimeError("找不到 node（需要 Node.js ≥ 22；或设 REMOTE_MIC_NODE 指向它）")
+        raise RuntimeError("找不到 node（需要 Node.js ≥ 22；或设 BATON_NODE 指向它）")
     if not SERVER_JS.exists():
         raise RuntimeError(f"守护进程脚本缺失：{SERVER_JS}")
     STATE_DIR.mkdir(parents=True, exist_ok=True)

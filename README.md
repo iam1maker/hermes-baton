@@ -27,7 +27,11 @@ Plugin id `baton` · kind `standalone` · requires Hermes `>=0.22.5` · macOS on
 ## Install
 
 ```bash
-# from a checkout — copies the plugin (+ sidecar, prebuilt bridge, docs) into a profile
+# one-liner — installs the plugin half into the active profile
+hermes plugins install iam1maker/hermes-baton
+hermes plugins enable baton
+
+# or from a checkout — copies the plugin (+ sidecar, prebuilt bridge, scripts, docs) into a profile
 bash scripts/install.sh forge                  # or: bash scripts/install.sh default
 bash scripts/install.sh forge --with-desktop   # also copy the renderer to ~/.hermes/desktop-plugins/baton
                                                # (only if the checkout ships desktop/plugin.js)
@@ -41,11 +45,10 @@ Then get the speech models (below), and enable the desktop half once under
 authority, so Hermes asks explicitly. The renderer is one plain `plugin.js` at
 `~/.hermes/desktop-plugins/<id>/plugin.js`; there is no build step.
 
-`scripts/` is a developer convenience: `install.sh` copies the runtime half
-(`__init__.py`, `runtime.py`, `plugin.yaml`, `dashboard/`, `sidecar/`, `docs/`,
-`README.md`, `LICENSE`) and not `scripts/`, so run `scripts/fetch-models.mjs`
-**from the checkout**, or point the page at a model directory you already have.
-The daemon never calls into `scripts/`.
+`install.sh` copies `__init__.py`, `runtime.py`, `plugin.yaml`, `dashboard/`,
+`sidecar/` (bridge + assets), `scripts/`, `docs/`, `README.md`, `LICENSE`, and
+`desktop/plugin.js` when present. The daemon never calls into `scripts/` — they
+are install-time helpers only (`fetch-models.mjs`, `install.sh`, device probes).
 
 ## Dependencies
 
@@ -54,8 +57,8 @@ Nothing here is vendored. All four items come from the machine.
 | Dependency | Why | How |
 |---|---|---|
 | **macOS 13+** | the BLE bridge is a Swift binary (`-target …-apple-macosx13.0`, universal `arm64` + `x86_64`) | prebuilt at `sidecar/bin/atvv-link`; rebuild with `bash sidecar/native/build.sh` (Xcode CLT only) |
-| **Node 22** | the sidecar daemon and the tests; not bundled, the host's `node` is used | resolution: `REMOTE_MIC_NODE` → `node` on `PATH` → `~/.local/bin` → `/opt/homebrew/bin` → `/usr/local/bin` → `/usr/bin` |
-| **`sherpa-onnx-node`** | ONNX runtime + SenseVoice/VAD bindings (native `.node`, darwin arm64/x64) | `npm i sherpa-onnx-node` in `sidecar/`, or point `REMOTE_MIC_SHERPA` at an existing install; resolution: `REMOTE_MIC_SHERPA` → `sidecar/node_modules` → common DSH bundle paths |
+| **Node 22** | the sidecar daemon and the tests; not bundled, the host's `node` is used | resolution: `BATON_NODE` / `REMOTE_MIC_NODE` → `node` on `PATH` → `~/.local/bin` → `/opt/homebrew/bin` → `/usr/local/bin` → `/usr/bin` |
+| **`sherpa-onnx-node`** | ONNX runtime + SenseVoice/VAD bindings (native `.node`, darwin arm64/x64) | `npm i sherpa-onnx-node` in `sidecar/`, or point `BATON_SHERPA` at an existing install; resolution: `BATON_SHERPA` / `REMOTE_MIC_SHERPA` → `sidecar/node_modules` → common DSH bundle paths |
 | **Speech models** | SenseVoice ASR + Silero VAD; **not in this repo** | `node scripts/fetch-models.mjs` (download + verify), `--from <dir>` (import a local copy), `POST /config` with `modelDir`/`vadModel`, or an external OpenAI-compatible STT service |
 
 Out of the box: **Xiaomi Bluetooth Voice Remote 2 / 2 Pro** (`0x2717:0x32b8`)
