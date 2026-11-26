@@ -223,7 +223,8 @@ daemon and Hermes keep running. The response tells you what happened:
 After a successful reload:
 
 ```bash
-curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8791/state | python3 -m json.tool
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8791/state -o /tmp/baton-state.json
+python3 -m json.tool /tmp/baton-state.json
 ```
 
 `state.profileId` should be your `id`; pressing a key should produce a line in
