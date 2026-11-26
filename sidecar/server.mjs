@@ -34,6 +34,7 @@ import {
   profileForDeviceName,
   hidPairsOf,
   pagesOf,
+  keysOfProfile,
   describeRegistry
 } from './devices/index.mjs'
 
@@ -624,6 +625,13 @@ let knownDevicesAt = 0
 
 function snapshot() {
   const profile = currentProfile()
+  // 只暴露「当前型号真的会发」的键：settings.json 里可能留着上一台遥控器的
+  // 默认（如小米模式下残留 Enter/InputSource）。页面按这份视图渲染就不会
+  // 出现「当前是小米却列出 Chromecast 键」。全量仍保留在 keys.stored 里备查。
+  const profileCodes = profile ? new Set(keysOfProfile(profile)) : null
+  const visibleKeyMap = profileCodes
+    ? Object.fromEntries(Object.entries(config.keyMap).filter(([code]) => profileCodes.has(code)))
+    : config.keyMap
   return {
     now: Date.now(),
     pid: process.pid,
@@ -649,7 +657,8 @@ function snapshot() {
     competitors: findCompetingBridges(),
     keys: {
       enabled: config.keysEnabled,
-      map: config.keyMap,
+      map: visibleKeyMap,
+      stored: config.keyMap,
       doubleMs: 300,
       longMs: 550,
       hidKeys: config.hidKeys
