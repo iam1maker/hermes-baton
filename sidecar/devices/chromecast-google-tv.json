@@ -1,0 +1,47 @@
+{
+  "id": "chromecast-google-tv",
+  "label": "Chromecast with Google TV 遥控器",
+  "vendor": "Google",
+  "match": {
+    "vendorIds": [6353],
+    "productIds": [37968],
+    "nameHints": ["Chromecast"]
+  },
+  "hidPairs": ["0x18d1:0x9450"],
+  "pages": [12],
+  "keys": {
+    "0x0c/0x41": "Enter",
+    "0x0c/0x42": "ArrowUp",
+    "0x0c/0x43": "ArrowDown",
+    "0x0c/0x44": "ArrowLeft",
+    "0x0c/0x45": "ArrowRight",
+    "0x0c/0x223": "Home",
+    "0x0c/0x77": "YouTube",
+    "0x0c/0x78": "Netflix",
+    "0x0c/0x89": "InputSource",
+    "0x0c/0x19e": "Power"
+  },
+  "hidKeys": [
+    "Enter",
+    "Back",
+    "Home",
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "InputSource",
+    "Power",
+    "Netflix",
+    "YouTube",
+    "AudioVolumeUp",
+    "AudioVolumeDown",
+    "AudioVolumeMute"
+  ],
+  "defaultKeyMap": {
+    "Enter": { "single": "submit", "double": "new-session", "long": "swallow" },
+    "Back": { "single": "stop", "double": { "action": "phrase", "name": "收到" } },
+    "InputSource": { "single": "new-session" }
+  },
+  "voiceHint": "按住语音键（麦克风图标）说话，松手出字",
+  "notes": "主集合是 Consumer Control（page 0x0C）：0x41 是独立 OK 键（小米的中键是语音键）。Power / Netflix / YouTube 由 macOS 自己消费（锁屏、拉起播放器），插件只识别不动作。"
+}

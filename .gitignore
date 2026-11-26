@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# 测试 harness 的拷贝产物（run.sh 每次从 desktop/plugin.js 复制）
+tests/plugin.js
+
+# 构建/运行产物
+sidecar/bin/*.bak-*
+sidecar/node_modules/
+node_modules/
+models/
+*.log
+*.out
+*.wav.part

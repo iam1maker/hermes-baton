@@ -1,0 +1,12 @@
+name: baton
+label: 指挥
+kind: standalone
+version: 1.0.0
+author: 1maker
+description: >
+  把蓝牙语音遥控器变成 Hermes 的输入与控制面：按住遥控器语音键说话 → 本机 SenseVoice 识别 →
+  文字插入当前输入框；按键可映射为提交 / 停止生成 / 新建会话 / 常用语。遥控器型号是数据
+  （sidecar/devices/*.json），新增型号不用改代码也不用重编桥。蓝牙链路与识别都在本机，音频不上传。
+requires_hermes: ">=0.22.5"
+provides_tools:
+  - baton

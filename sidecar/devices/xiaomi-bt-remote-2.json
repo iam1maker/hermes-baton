@@ -1,0 +1,23 @@
+{
+  "id": "xiaomi-bt-remote-2",
+  "label": "小米蓝牙语音遥控器 2 / 2 Pro",
+  "vendor": "Xiaomi",
+  "match": {
+    "vendorIds": [10007],
+    "productIds": [12984],
+    "nameHints": ["小米蓝牙语音遥控器", "Mi Remote", "MiRemote", "Xiaomi"]
+  },
+  "hidPairs": ["0x2717:0x32b8"],
+  "pages": [7, 65280],
+  "keys": {
+    "0x07/0xf1": "Back",
+    "0x07/0x80": "AudioVolumeUp",
+    "0x07/0x81": "AudioVolumeDown"
+  },
+  "hidKeys": ["Back", "AudioVolumeUp", "AudioVolumeDown", "AudioVolumeMute"],
+  "defaultKeyMap": {
+    "Back": { "single": "stop", "double": { "action": "phrase", "name": "收到" } }
+  },
+  "voiceHint": "按住中键（语音键）说话，松手出字",
+  "notes": "固件 2671 实测：Back 走键盘页 0xF1，音量走 0x80/0x81；不通过 HID 上报 Enter，所以按键表里没有 Enter。"
+}

@@ -1,0 +1,25 @@
+{
+  "id": "_base",
+  "label": "HID 标准键（所有遥控器共享）",
+  "comment": "page/usage → KeyboardEvent.code 的公共表。型号 profile 里只写它特有的键，这里放 HID Usage Tables 的标准含义。新增遥控器不需要改这里。",
+  "keys": {
+    "0x07/0x28": "Enter",
+    "0x07/0x29": "Escape",
+    "0x07/0x2a": "Backspace",
+    "0x07/0x35": "Backquote",
+    "0x07/0x3e": "F5",
+    "0x07/0x4a": "Home",
+    "0x07/0x4f": "ArrowLeft",
+    "0x07/0x50": "ArrowRight",
+    "0x07/0x51": "ArrowDown",
+    "0x07/0x52": "ArrowUp",
+    "0x07/0x65": "ContextMenu",
+    "0x07/0xe9": "AudioVolumeUp",
+    "0x07/0xea": "AudioVolumeDown",
+    "0x07/0xe2": "AudioVolumeMute",
+    "0x0c/0x224": "Back",
+    "0x0c/0xe9": "AudioVolumeUp",
+    "0x0c/0xea": "AudioVolumeDown",
+    "0x0c/0xe2": "AudioVolumeMute"
+  }
+}
