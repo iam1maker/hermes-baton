@@ -1,7 +1,7 @@
 {
-  "name": "remote-mic",
-  "label": "语音遥控",
-  "description": "小米蓝牙语音遥控器：链路状态、按键映射、常用语、语音输入历史与本地识别自检",
+  "name": "baton",
+  "label": "指挥",
+  "description": "蓝牙语音遥控器：链路状态、按键映射、设备切换、常用语、语音输入历史与本地识别自检",
   "icon": "Mic",
   "version": "1.0.0",
   "api": "plugin_api.py"

@@ -45,6 +45,25 @@ Then get the speech models (below), and enable the desktop half once under
 authority, so Hermes asks explicitly. The renderer is one plain `plugin.js` at
 `~/.hermes/desktop-plugins/<id>/plugin.js`; there is no build step.
 
+### Profiles: the renderer is global, the routes are not
+
+`~/.hermes/desktop-plugins/` belongs to the **app**, shared by every profile,
+while `/api/plugins/baton/*` is served **per profile**. Installing the plugin in
+one profile and switching the app to another gives you the sidebar entry and a
+page that answers `404 {"detail":"Plugin not found"}`. Use it from N profiles by
+linking one checkout into each (the daemon listens on one port and the second
+profile reuses the running one):
+
+```bash
+ln -sfn ~/.hermes/profiles/forge/plugins/baton ~/.hermes/plugins/baton   # default profile
+HERMES_HOME=~/.hermes hermes plugins enable baton
+```
+
+`dashboard/manifest.json`'s `name` is what the gateway mounts the router under —
+keep it equal to `plugin.yaml`'s `name`. A rename that misses this file leaves
+every `/api/plugins/<new-name>/*` call at 404 while `/api/plugins/<old-name>/*`
+still answers, which looks exactly like "the plugin is not installed".
+
 `install.sh` copies `__init__.py`, `runtime.py`, `plugin.yaml`, `dashboard/`,
 `sidecar/` (bridge + assets), `scripts/`, `docs/`, `README.md`, `LICENSE`, and
 `desktop/plugin.js` when present. The daemon never calls into `scripts/` — they

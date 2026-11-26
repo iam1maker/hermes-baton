@@ -15,7 +15,7 @@ from pathlib import Path
 HERMES_REPO = Path("/Users/1maker/.hermes/hermes-agent")
 sys.path.insert(0, str(HERMES_REPO))
 
-HOME = os.path.expanduser("~/.hermes/profiles/forge")
+HOME = Path(os.path.expanduser(os.environ.get("BATON_PROBE_HOME", "~/.hermes/profiles/forge")))
 
 from hermes_cli.gateway_client import _session_ticket  # noqa: E402
 from hermes_cli.gateway_runtime_attach import attach_gateway  # noqa: E402
