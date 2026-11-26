@@ -8,13 +8,16 @@
 ## 1. 分五层，改动落在最外面那一层
 
 ```
-┌─ 渲染层  desktop-plugins/baton/plugin.js     页面、按键引擎、输入框注入（无构建，纯 JS）
+┌─ 渲染层  desktop-plugins/baton/plugin.js     页面、按键引擎、输入框注入（产物 = src/desktop/plugin.tsx）
 ├─ 网关层  dashboard/plugin_api.py              /api/plugins/baton/*  ← 渲染层只跟它说话
 ├─ 进程层  runtime.py + __init__.py             拉起/守护 sidecar，注册 agent 工具 baton
-├─ 服务层  sidecar/server.mjs                   事件流、按键引擎、STT、配置、HTTP 8791
+├─ 服务层  sidecar/server.mjs                   事件流、按键引擎、STT、配置、HTTP 8791（产物 = src/sidecar/server.mts）
 ├─ 适配层  sidecar/devices/*.json               ★ 型号在这里，不在代码里
 └─ 传输层  sidecar/native/main.swift (atvv-link)  BLE ATVV 语音流 + IOHIDManager 旁听按键
 ```
+
+> 代码在 `src/` 下（TypeScript），`sidecar/*.mjs`、`desktop/plugin.js` 是构建产物：改代码请改
+> `src/`，然后 `node dev/build.mjs`。约定见 [TYPESCRIPT.md](TYPESCRIPT.md)。
 
 **判断一条改动该落在哪层**：换了遥控器 → 适配层；换了识别模型 → 服务层（`sidecar/stt/`）；换了 UI → 渲染层；
 新增一种「动作」（比如「打开某 App」）→ 服务层 + 渲染层的动作下拉。传输层只在协议变化时才动。

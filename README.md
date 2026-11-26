@@ -201,12 +201,22 @@ route except `/health`.
 
 ## Development
 
+Source is TypeScript under `src/`; the `sidecar/*.mjs`, `scripts/*.mjs`, `tests/*.mjs` and
+`desktop/plugin.js` shipped in this repo are **build products** (they carry a `// GENERATED`
+banner). Rules, layout and the two toolchain gotchas are in
+[docs/TYPESCRIPT.md](docs/TYPESCRIPT.md).
+
 ```bash
-bash tests/run.sh                 # 49 assertions, no Electron / gateway / hardware
+cd dev && npm install --no-audit --no-fund   # once: typescript + esbuild + @types
+node dev/typecheck.mjs                       # whole project (tsc --noEmit equivalent)
+node dev/build.mjs                           # src/** → the runtime artifacts
+
+bash tests/run.sh                 # builds, then every assertion, no Electron / gateway / hardware
                                   #   harness.mjs           13  renderer: event stream, key engine, composer
                                   #   model-precision.mjs    5  int8/fp32 selection and fallbacks
                                   #   hid-filter.mjs        12  key ownership: active vs any
                                   #   devices-registry.mjs  19  JSON profiles → key table, bridge args
+                                  #   profile-render.mjs    23  per-device key rows, unknown-key handling
 node --check sidecar/server.mjs
 node -e "import('./sidecar/devices/index.mjs').then(m=>console.log(m.loadDeviceProfiles().profiles.map(p=>p.id)))"
 node scripts/fetch-models.mjs --help
@@ -230,6 +240,8 @@ Baton（原名 baton）把蓝牙语音遥控器变成 Hermes 的输入/控制面
 提交 / 停止 / 新建会话 / 常用语。默认不上传任何音频，也不打开系统麦克风。
 
 - 机型数据驱动：`sidecar/devices/*.json`，接新遥控器不改代码，步骤见 `docs/ADD-A-DEVICE.md`。
+- 源码是 TypeScript（`src/`），仓库里直接带编译产物：`node dev/build.mjs` 重新生成，
+  `node dev/typecheck.mjs` 类型检查，约定见 `docs/TYPESCRIPT.md`。
 - 模型不在仓库里：`node scripts/fetch-models.mjs` 下载（断点续传 + sha256 校验），
   或 `--from` 导入已有目录，或在页面里填外部 OpenAI 兼容 STT。
 - 权限只要两项：蓝牙、输入监控（读遥控器按键）。音量键与 Power/Netflix/YouTube 由 macOS

@@ -11,9 +11,11 @@ set -euo pipefail
 
 PROFILE="${1:-default}"
 WITH_DESKTOP="no"
+DESKTOP_ONLY="no"
 for arg in "$@"; do
   case "$arg" in
     --with-desktop) WITH_DESKTOP="yes" ;;
+    --desktop-only) WITH_DESKTOP="yes"; DESKTOP_ONLY="yes" ;;
   esac
 done
 
@@ -34,17 +36,25 @@ fi
 
 PLUGINS_DIR="$HERMES_HOME_DIR/plugins"
 DESKTOP_DIR="$HOME/.hermes/desktop-plugins/$PLUGIN_ID"
-mkdir -p "$PLUGINS_DIR"
+DEST="$PLUGINS_DIR/$PLUGIN_ID"
 
-echo "→ 插件 → $PLUGINS_DIR/$PLUGIN_ID"
-rm -rf "$PLUGINS_DIR/$PLUGIN_ID"
-mkdir -p "$PLUGINS_DIR/$PLUGIN_ID"
-# 只复制运行必需的东西：Python 半 + sidecar（含已编译的桥与型号注册表）+ 文档
-for item in __init__.py runtime.py plugin.yaml dashboard sidecar docs scripts README.md LICENSE; do
-  [ -e "$SRC/$item" ] && cp -R "$SRC/$item" "$PLUGINS_DIR/$PLUGIN_ID/"
-done
-find "$PLUGINS_DIR/$PLUGIN_ID" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
-chmod +x "$PLUGINS_DIR/$PLUGIN_ID/sidecar/bin/atvv-link" 2>/dev/null || true
+# 源码目录本身可能就是安装目录（在 profile 里开发时就是如此）。此时 rm -rf 会把源码删掉，
+# 而随后的 cp 再从空目录复制 —— 整个仓库就没了。所以这种情况直接跳过复制。
+if [ "$DESKTOP_ONLY" = "no" ]; then
+  if [ -d "$DEST" ] && [ "$(cd "$DEST" && pwd -P)" = "$(cd "$SRC" && pwd -P)" ]; then
+    echo "→ 源码目录就是安装目录（$DEST），跳过复制"
+  else
+    echo "→ 插件 → $DEST"
+    rm -rf "$DEST"
+    mkdir -p "$DEST"
+    # 只复制运行必需的东西：Python 半 + sidecar（含已编译的桥与型号注册表）+ 文档
+    for item in __init__.py runtime.py plugin.yaml dashboard sidecar docs scripts README.md LICENSE; do
+      [ -e "$SRC/$item" ] && cp -R "$SRC/$item" "$DEST/"
+    done
+    find "$DEST" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+    chmod +x "$DEST/sidecar/bin/atvv-link" 2>/dev/null || true
+  fi
+fi
 
 if [ "$WITH_DESKTOP" = "yes" ]; then
   if [ -f "$SRC/desktop/plugin.js" ]; then
@@ -67,6 +77,15 @@ MARK
   else
     echo "! 仓库里没有 desktop/plugin.js，跳过桌面半" >&2
   fi
+fi
+
+if [ "$DESKTOP_ONLY" = "yes" ]; then
+  cat <<EOF
+
+桌面半已刷新：$DESKTOP_DIR/plugin.js
+重启 Hermes 应用后在侧栏「$PLUGIN_ID」查看。
+EOF
+  exit 0
 fi
 
 cat <<EOF

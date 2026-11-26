@@ -1,0 +1,17 @@
+{
+  "name": "baton-dev",
+  "private": true,
+  "type": "module",
+  "description": "Build/typecheck toolchain for the baton plugin. Never shipped: install.sh excludes dev/.",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "node typecheck.mjs",
+    "check": "node typecheck.mjs && node build.mjs && bash ../tests/run.sh"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "@types/react": "18.3.1",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
+  }
+}

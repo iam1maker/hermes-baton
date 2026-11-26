@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "useUnknownInCatchVariables": true,
+    "exactOptionalPropertyTypes": false,
+    "verbatimModuleSyntax": false,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"],
+    "typeRoots": ["./dev/node_modules/@types"],
+    "baseUrl": ".",
+    "paths": {
+      "@hermes/plugin-sdk": ["./types/hermes-plugin-sdk.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.mts", "src/**/*.tsx", "types/**/*.d.ts"]
+}

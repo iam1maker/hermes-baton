@@ -9,7 +9,9 @@ tests/plugin.js
 sidecar/bin/*.bak-*
 sidecar/node_modules/
 node_modules/
+dev/node_modules/
 models/
 *.log
 *.out
 *.wav.part
+*.tsbuildinfo
