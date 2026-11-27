@@ -8,6 +8,8 @@
 //   4) defaultKeyMap only produces grey placeholders ("Default: X") and is never written into keyMap
 //      (rendering performs zero /config calls);
 //   5) profileId=null degrades to the legacy full key table plus the "not registered" hint (with devicesDir).
+//   6) sttSummary() (speech-service card) maps kind / engine.ok / local.model to the expected
+//      labels and flags, and every stt.* i18n key exists in both catalogues.
 //
 // UI copy is never hardcoded here: the built bundle exports the catalogues as `zhMessages` / `enMessages`,
 // so every expected string is derived from the same source the renderer uses.
@@ -138,6 +140,7 @@ interface Booted {
   dispose: () => void
   zh: Catalog
   en: Catalog
+  sttSummary: (state: unknown) => Record<string, unknown>
 }
 
 /** Dynamic import that TS cannot resolve at compile time (the file is a build product). */
@@ -195,7 +198,8 @@ async function boot(seedUserKeys: string[], keyMap: Record<string, unknown>, pro
     render,
     dispose: () => disposers.forEach(fn => { try { fn() } catch {} }),
     zh,
-    en
+    en,
+    sttSummary: mod['sttSummary'] as (state: unknown) => Record<string, unknown>
   }
 }
 
@@ -412,6 +416,55 @@ function check(name: string, ok: boolean, detail?: unknown) {
   check('B3 DELETE HITS CONFIG', app.configLog.length === 1, app.configLog)
   const lastSet = app.storageLog.filter(s => s.k === 'prefs').pop()
   check('B3 PROVENANCE CLEARED', lastSet !== undefined && JSON.stringify(prop(lastSet.v, 'userKeys')) === '[]', lastSet)
+
+  app.dispose()
+}
+
+/* ── Phase C: sttSummary (speech-service card) and its i18n keys ───────── */
+{
+  const app = await boot([], { ...REAL_KEYMAP }, 'chromecast-google-tv')
+  const L = app.zh
+  await wait(120)
+
+  // C1) the four combinations of kind / engine.ok / local.model map to the expected labels and flags
+  const READY_DOT = 'var(--ui-green)'
+  const WAIT_DOT = 'var(--ui-orange)'
+  const fixtures: unknown[] = [
+    // local, engine installed, model downloaded
+    { kind: 'sensevoice', ready: true, language: 'zh', local: { model: '/m/models/sensevoice.int8.onnx', precision: 'int8', problems: [] }, engine: { ok: true, path: '/s/sherpa/node_modules/sherpa-onnx-node' } },
+    // local, engine installed, model missing (problems tell why)
+    { kind: 'sensevoice', ready: false, language: 'zh', local: { model: null, precision: null, problems: ['model file missing', 'vad model missing'] }, engine: { ok: true, path: '/s/sherpa/node_modules/sherpa-onnx-node' } },
+    // external service answers even though nothing is installed locally
+    { kind: 'openai', ready: true, language: 'zh', local: { model: null, problems: [] }, engine: { ok: false, path: null }, external: { baseUrl: 'https://api.openai.com/v1', model: 'whisper-1', hasKey: true } },
+    // not configured at all
+    { kind: 'missing', ready: false, language: 'zh', local: { model: null, problems: [] }, engine: { ok: false, path: null } }
+  ]
+  const expected: unknown[] = [
+    { kindLabel: L.stt.kindLocal, readyDot: READY_DOT, engineLabel: fill(L.stt.engineInstalled, { name: 'sherpa-onnx-node' }), modelLabel: 'sensevoice.int8.onnx' + L.common.dot + 'int8', engineMissing: false, needsInstall: false },
+    { kindLabel: L.stt.kindLocal, readyDot: WAIT_DOT, engineLabel: fill(L.stt.engineInstalled, { name: 'sherpa-onnx-node' }), modelLabel: ['model file missing', 'vad model missing'].join(L.common.listSeparator), engineMissing: false, needsInstall: true },
+    { kindLabel: L.stt.kindExternal, readyDot: READY_DOT, engineLabel: L.stt.engineMissing, modelLabel: L.stt.modelMissing, engineMissing: true, needsInstall: false },
+    { kindLabel: L.stt.kindMissing, readyDot: WAIT_DOT, engineLabel: L.stt.engineMissing, modelLabel: L.stt.modelMissing, engineMissing: true, needsInstall: true }
+  ]
+  const actual = fixtures.map(f => app.sttSummary(f))
+  check('C1 STTSUMMARY MAPPING', JSON.stringify(actual) === JSON.stringify(expected), actual)
+
+  // C2) every stt.* key exists in both bundles as a non-empty string (A0 keeps the leaf shapes equal)
+  const required = [
+    'stt.card', 'stt.cardHint', 'stt.kindLocal', 'stt.kindExternal', 'stt.kindMissing', 'stt.ready', 'stt.attention',
+    'stt.engine', 'stt.engineInstalled', 'stt.engineMissing', 'stt.installEngine', 'stt.model', 'stt.modelMissing',
+    'stt.vad', 'stt.vadPresent', 'stt.vadMissing', 'stt.language', 'stt.download', 'stt.downloadFp32',
+    'stt.jobRunning', 'stt.jobOk', 'stt.jobFailed', 'stt.installFailed', 'stt.external', 'stt.externalHint',
+    'stt.baseUrl', 'stt.baseUrlPlaceholder', 'stt.modelField', 'stt.modelPlaceholder', 'stt.apiKey', 'stt.apiKeySet',
+    'stt.apiKeyPlaceholder', 'stt.save', 'stt.saved'
+  ]
+  const leaf = (tree: unknown, dotted: string): unknown =>
+    dotted.split('.').reduce((acc: unknown, k) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[k] : undefined), tree)
+  const bad = required.filter(p => {
+    const zhLeaf = leaf(app.zh, p)
+    const enLeaf = leaf(app.en, p)
+    return typeof zhLeaf !== 'string' || !zhLeaf || typeof enLeaf !== 'string' || !enLeaf
+  })
+  check('C2 STT I18N KEYS', bad.length === 0, bad)
 
   app.dispose()
 }

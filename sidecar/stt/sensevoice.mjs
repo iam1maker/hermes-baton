@@ -5,19 +5,22 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 const HOME = homedir();
 const envAny = (key) => process.env[`BATON_${key}`] || process.env[`REMOTE_MIC_${key}`];
-const DEFAULT_MODEL_DIR = join(
-  HOME,
-  ".dsh/speech-to-text/sensevoice/models/sensevoice-onnx"
-);
-const DEFAULT_VAD_MODEL = join(HOME, ".dsh/speech-to-text/sensevoice/models/silero/silero_vad.onnx");
+const STATE_DIR = envAny("STATE_DIR") || join(HOME, ".hermes", "baton");
+const DEFAULT_MODEL_DIR = join(STATE_DIR, "models", "sensevoice-onnx");
+const DEFAULT_VAD_MODEL = join(STATE_DIR, "models", "silero-vad", "silero_vad.onnx");
 function sherpaCandidates() {
   const out = [];
   const override = envAny("SHERPA");
   if (override) out.push(override);
-  out.push(join(import.meta.dirname, "node_modules/sherpa-onnx-node"));
-  out.push(join(HOME, ".dsh/profiles/desktop/node_modules/sherpa-onnx-node"));
-  out.push(join(HOME, ".dsh/profiles/node_modules/sherpa-onnx-node"));
+  out.push(join(import.meta.dirname, "node_modules", "sherpa-onnx-node"));
+  out.push(join(import.meta.dirname, "..", "node_modules", "sherpa-onnx-node"));
+  out.push(join(STATE_DIR, "sherpa", "node_modules", "sherpa-onnx-node"));
   return out;
+}
+function sherpaLookup() {
+  const candidates = sherpaCandidates();
+  const found = candidates.find((dir) => existsSync(join(dir, "sherpa-onnx.js"))) ?? null;
+  return { candidates, found };
 }
 function loadSherpa() {
   const tried = [];
@@ -33,8 +36,13 @@ function loadSherpa() {
     }
   }
   const error = new Error(
-    `sherpa-onnx native module not found (tried ${tried.length} places).
-` + tried.map((line) => `  \xB7 ${line}`).join("\n") + "\nfix: reinstall the DSH voice-input bundle, or npm i sherpa-onnx-node (sherpa-onnx-darwin-arm64), then point REMOTE_MIC_SHERPA at it."
+    `the local speech engine is not installed (the pinned npm package "sherpa-onnx-node").
+fixes (pick one):
+  \xB7 run \`node scripts/fetch-models.mjs --with-sherpa\` in the plugin directory
+  \xB7 click 'Install engine' on the Baton page
+  \xB7 set BATON_SHERPA to an existing sherpa-onnx-node installation
+tried ${tried.length} places:
+` + tried.map((line) => `  \xB7 ${line}`).join("\n")
   );
   error.code = "SHERPA_MISSING";
   throw error;
@@ -270,5 +278,6 @@ export {
   DEFAULT_VAD_MODEL,
   createSenseVoiceTranscriber,
   decodeWav,
-  resolveModelPaths
+  resolveModelPaths,
+  sherpaLookup
 };

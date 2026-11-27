@@ -219,6 +219,42 @@ var en = {
     loadFailed: "Could not load the log: {error}",
     empty: "(click Refresh to read the last 60 lines)"
   },
+  stt: {
+    card: "Speech service",
+    cardHint: "Everything local SenseVoice recognition needs: engine, model and VAD \u2014 install what is missing here, or switch to an external service.",
+    kindLocal: "Local SenseVoice",
+    kindExternal: "External service",
+    kindMissing: "Not configured",
+    ready: "ready",
+    attention: "needs attention",
+    engine: "Engine",
+    engineInstalled: "installed ({name})",
+    engineMissing: "missing",
+    installEngine: "Install engine",
+    model: "Local model",
+    modelMissing: "not downloaded",
+    vad: "VAD model",
+    vadPresent: "present ({name})",
+    vadMissing: "missing",
+    language: "Language",
+    download: "Download local models",
+    downloadFp32: "Download + fp32",
+    jobRunning: "installing\u2026",
+    jobOk: "finished",
+    jobFailed: "failed: {error}",
+    installFailed: "Install failed: {error}",
+    external: "External STT",
+    externalHint: "The only mode that sends audio off this machine; local recognition never leaves it.",
+    baseUrl: "Base URL",
+    baseUrlPlaceholder: "https://api.openai.com/v1",
+    modelField: "Model",
+    modelPlaceholder: "whisper-1",
+    apiKey: "API key",
+    apiKeySet: "******** (saved; leave blank to keep)",
+    apiKeyPlaceholder: "sk-...",
+    save: "Save",
+    saved: "Speech service settings saved"
+  },
   notices: {
     backendNotReady: "plugin backend is not ready",
     recognitionFailed: "Recognition failed",
@@ -484,6 +520,42 @@ var zh = {
     loadFailed: "\u8BFB\u53D6\u65E5\u5FD7\u5931\u8D25\uFF1A{error}",
     empty: "\uFF08\u70B9\u53F3\u4E0A\u89D2\u5237\u65B0\u8BFB\u53D6\u6700\u8FD1 60 \u884C\uFF09"
   },
+  stt: {
+    card: "\u8BED\u97F3\u670D\u52A1",
+    cardHint: "\u672C\u673A SenseVoice \u8BC6\u522B\u6240\u9700\u7684\u4E00\u5207\u90FD\u5728\u8FD9\u91CC\uFF1A\u5F15\u64CE\u3001\u6A21\u578B\u3001VAD\uFF0C\u7F3A\u4EC0\u4E48\u88C5\u4EC0\u4E48\uFF1B\u4E5F\u53EF\u4EE5\u6539\u7528\u5916\u90E8\u8BC6\u522B\u670D\u52A1\u3002",
+    kindLocal: "\u672C\u5730 SenseVoice",
+    kindExternal: "\u5916\u90E8\u670D\u52A1",
+    kindMissing: "\u672A\u914D\u7F6E",
+    ready: "\u5C31\u7EEA",
+    attention: "\u5F85\u5904\u7406",
+    engine: "\u5F15\u64CE",
+    engineInstalled: "\u5DF2\u5B89\u88C5\uFF08{name}\uFF09",
+    engineMissing: "\u672A\u5B89\u88C5",
+    installEngine: "\u5B89\u88C5\u5F15\u64CE",
+    model: "\u672C\u5730\u6A21\u578B",
+    modelMissing: "\u672A\u4E0B\u8F7D",
+    vad: "VAD \u6A21\u578B",
+    vadPresent: "\u5DF2\u5C31\u7EEA\uFF08{name}\uFF09",
+    vadMissing: "\u7F3A\u5931",
+    language: "\u8BC6\u522B\u8BED\u8A00",
+    download: "\u4E0B\u8F7D\u672C\u5730\u6A21\u578B",
+    downloadFp32: "\u4E0B\u8F7D\uFF08\u542B fp32\uFF09",
+    jobRunning: "\u5B89\u88C5\u4E2D\u2026",
+    jobOk: "\u5DF2\u5B8C\u6210",
+    jobFailed: "\u5931\u8D25\uFF1A{error}",
+    installFailed: "\u5B89\u88C5\u5931\u8D25\uFF1A{error}",
+    external: "\u5916\u90E8\u8BC6\u522B\u670D\u52A1",
+    externalHint: "\u53EA\u6709\u8FD9\u4E2A\u6A21\u5F0F\u4F1A\u628A\u97F3\u9891\u9001\u51FA\u672C\u673A\uFF1B\u672C\u5730\u8BC6\u522B\u7684\u97F3\u9891\u4E0D\u51FA\u673A\u5668\u3002",
+    baseUrl: "\u63A5\u53E3\u5730\u5740",
+    baseUrlPlaceholder: "https://api.openai.com/v1",
+    modelField: "\u6A21\u578B",
+    modelPlaceholder: "whisper-1",
+    apiKey: "API \u5BC6\u94A5",
+    apiKeySet: "********\uFF08\u5DF2\u4FDD\u5B58\uFF1B\u7559\u7A7A\u5219\u4E0D\u4FEE\u6539\uFF09",
+    apiKeyPlaceholder: "sk-...",
+    save: "\u4FDD\u5B58",
+    saved: "\u8BED\u97F3\u670D\u52A1\u8BBE\u7F6E\u5DF2\u4FDD\u5B58"
+  },
   notices: {
     backendNotReady: "\u63D2\u4EF6\u540E\u7AEF\u672A\u5C31\u7EEA",
     recognitionFailed: "\u8BC6\u522B\u5931\u8D25",
@@ -589,6 +661,8 @@ var REST = null;
 var CTX = null;
 var store = {
   snap: null,
+  stt: null,
+  selftest: null,
   error: null,
   cursor: null,
   bootId: null,
@@ -692,7 +766,90 @@ async function refreshState() {
   } catch (error) {
     store.error = errText(error);
   }
+  refreshStt();
   publish();
+}
+var sttDoneJob = null;
+async function refreshStt() {
+  try {
+    const info = await api("/stt", { timeoutMs: 15e3 });
+    const incoming = info && info.job || null;
+    const prior = store.stt && store.stt.job || null;
+    if (incoming && prior && String(incoming.id || "") === String(prior.id || "")) {
+      const priorLines = Array.isArray(prior.lines) ? prior.lines : [];
+      const incomingLines = Array.isArray(incoming.lines) ? incoming.lines : [];
+      incoming.lines = priorLines.length >= incomingLines.length ? priorLines : incomingLines;
+    }
+    store.stt = info;
+    watchSttJob();
+    publish();
+  } catch {
+  }
+}
+function watchSttJob() {
+  const job = store.stt && store.stt.job || null;
+  if (!job || !job.state || job.state === "running") return;
+  const id = String(job.id || "");
+  if (id === sttDoneJob) return;
+  sttDoneJob = id;
+  refreshState();
+  if (job.state === "ok") runSelftest();
+}
+async function runSelftest() {
+  store.busy = true;
+  publish();
+  try {
+    const result = await post("/selftest");
+    store.selftest = result && result.transcript || null;
+  } catch (error) {
+    toast(errText(error), "error");
+  } finally {
+    store.busy = false;
+    publish();
+    refreshState();
+  }
+}
+async function installStt(what, fp32) {
+  store.busy = true;
+  publish();
+  try {
+    const body = what === "sherpa" ? { what: "sherpa" } : { what, fp32 };
+    const res = await post("/stt/install", body);
+    const job = res && res.job || null;
+    if (job) {
+      const id = String(job.id || "");
+      if (id !== String((store.stt && store.stt.job || {}).id || "")) {
+        sttDoneJob = null;
+      }
+      store.stt = { ...store.stt || {}, job };
+    }
+  } catch (error) {
+    toast(fmt(L.stt.installFailed, { error: errText(error) }), "error");
+  } finally {
+    store.busy = false;
+    publish();
+    refreshStt();
+  }
+}
+function pathBasename(value) {
+  return String(value || "").split("/").filter(Boolean).pop() || "";
+}
+function sttSummary(state) {
+  const info = state || {};
+  const kind = String(info.kind || "");
+  const local = info.local || {};
+  const engine2 = info.engine || {};
+  const problems = Array.isArray(local.problems) ? local.problems : [];
+  const kindLabel = kind === "openai" ? L.stt.kindExternal : kind === "sensevoice" ? L.stt.kindLocal : L.stt.kindMissing;
+  return {
+    kindLabel,
+    readyDot: info.ready ? C.green : C.orange,
+    engineLabel: engine2.ok && engine2.path ? fmt(L.stt.engineInstalled, { name: pathBasename(engine2.path) }) : L.stt.engineMissing,
+    modelLabel: local.model ? pathBasename(local.model) + (local.precision ? L.common.dot + String(local.precision) : "") : problems.length ? problems.join(L.common.listSeparator) : L.stt.modelMissing,
+    engineMissing: !engine2.ok,
+    // An external service answers regardless of what is installed locally.
+    needsInstall: kind !== "openai" && (!engine2.ok || !local.model)
+  };
 }
 function applyRuntimeConfig(snap) {
   if (!snap) return;
@@ -1118,6 +1275,18 @@ function handleEvent(event) {
     publish();
     return;
   }
+  if (type === "stt-install") {
+    const id = String(payload.id || "");
+    const current = store.stt && store.stt.job || null;
+    const job = current && String(current.id || "") === id ? current : { id, what: "all", state: "running", percent: 0, lines: [] };
+    if (!Array.isArray(job.lines)) job.lines = [];
+    if (payload.line) job.lines.push(String(payload.line));
+    if (typeof payload.percent === "number") job.percent = payload.percent;
+    if (payload.state) job.state = String(payload.state);
+    store.stt = { ...store.stt || {}, job };
+    publish();
+    return;
+  }
   if (type === "error") {
     if (listenActive()) {
       listenWin.note = String(payload.message || L.notices.recognitionFailed);
@@ -1411,12 +1580,13 @@ function Select({ value, options, onChange, style }) {
     }
   );
 }
-function TextInput({ value, onChange, placeholder, width }) {
+function TextInput({ value, onChange, placeholder, width, type }) {
   return /* @__PURE__ */ jsx(
     "input",
     {
       value: value || "",
       className: "rm-field",
+      type: type || "text",
       placeholder,
       onChange: (e) => onChange(e.target.value),
       style: {
@@ -1705,6 +1875,154 @@ async function patchConfig(patch) {
     return false;
   }
 }
+function SttCard() {
+  const s = useStore();
+  const info = s.stt || {};
+  const summary = sttSummary(s.stt);
+  const local = info.local || {};
+  const external = info.external || {};
+  const job = info.job || {};
+  const running = job.state === "running" || s.busy;
+  const values = s.snap && s.snap.config || {};
+  const [baseUrl, setBaseUrl] = useState(String(values.sttBaseUrl || ""));
+  const [sttModel, setSttModel] = useState(String(values.sttModel || ""));
+  const [apiKey, setApiKey] = useState("");
+  useEffect(() => setBaseUrl(String(values.sttBaseUrl || "")), [values.sttBaseUrl]);
+  useEffect(() => setSttModel(String(values.sttModel || "")), [values.sttModel]);
+  const lines = Array.isArray(job.lines) ? job.lines.slice(-6) : [];
+  const percent = Math.max(0, Math.min(100, Number(job.percent) || 0));
+  const saveExternal = async () => {
+    const patch = { sttBaseUrl: baseUrl.trim(), sttModel: sttModel.trim() };
+    if (apiKey.trim()) patch.sttApiKey = apiKey.trim();
+    const ok = await patchConfig(patch);
+    if (ok) {
+      setApiKey("");
+      toast(L.stt.saved, "info");
+      refreshState();
+    }
+  };
+  return /* @__PURE__ */ jsxs(
+    Card,
+    {
+      ...{ key: "stt" },
+      title: L.stt.card,
+      hint: L.stt.cardHint,
+      action: /* @__PURE__ */ jsxs(
+        "span",
+        {
+          style: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "2px 9px",
+            borderRadius: 999,
+            border: "1px solid " + TINT(summary.readyDot, 32),
+            background: TINT(summary.readyDot, 12),
+            fontSize: FS.tiny,
+            color: C.fg2,
+            lineHeight: "16px"
+          },
+          children: [
+            /* @__PURE__ */ jsx(Dot, { ...{ key: "d" }, tone: summary.readyDot, pulse: running }),
+            /* @__PURE__ */ jsx("span", { ...{ key: "k" }, children: summary.kindLabel }),
+            /* @__PURE__ */ jsx("span", { ...{ key: "r" }, style: { color: C.fg4 }, children: info.ready ? L.stt.ready : L.stt.attention })
+          ]
+        }
+      ),
+      children: [
+        /* @__PURE__ */ jsxs(Field, { label: L.stt.engine, children: [
+          /* @__PURE__ */ jsx("span", { style: { fontSize: FS.small, color: summary.engineMissing ? C.orange : C.fg2 }, children: summary.engineLabel }),
+          /* @__PURE__ */ jsx(Btn, { ghost: true, disabled: running, onClick: () => installStt("sherpa", false), children: L.stt.installEngine })
+        ] }),
+        /* @__PURE__ */ jsx(Field, { label: L.stt.model, children: /* @__PURE__ */ jsx(
+          "span",
+          {
+            style: {
+              fontSize: FS.small,
+              color: summary.needsInstall ? C.orange : C.fg2,
+              maxWidth: 280,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap"
+            },
+            children: summary.modelLabel
+          }
+        ) }),
+        /* @__PURE__ */ jsx(Field, { label: L.stt.vad, children: /* @__PURE__ */ jsx("span", { style: { fontSize: FS.small, color: local.vad ? C.fg2 : C.orange }, children: local.vad ? fmt(L.stt.vadPresent, { name: pathBasename(local.vad) }) : L.stt.vadMissing }) }),
+        /* @__PURE__ */ jsx(Field, { label: L.stt.language, children: /* @__PURE__ */ jsx("span", { style: { fontSize: FS.small, color: C.fg2 }, children: String(info.language || "zh") }) }),
+        /* @__PURE__ */ jsxs("div", { ...{ key: "dl" }, style: { display: "flex", gap: 8, flexWrap: "wrap" }, children: [
+          /* @__PURE__ */ jsx(Btn, { ...{ key: "i8" }, disabled: running, onClick: () => installStt("all", false), children: L.stt.download }),
+          /* @__PURE__ */ jsx(Btn, { ...{ key: "f32" }, disabled: running, onClick: () => installStt("all", true), children: L.stt.downloadFp32 })
+        ] }),
+        job.state ? /* @__PURE__ */ jsxs(Panel, { ...{ key: "job" }, style: { display: "flex", flexDirection: "column", gap: 6 }, children: [
+          /* @__PURE__ */ jsx("div", { style: { height: 3, borderRadius: 999, background: TINT(C.fg4, 26), overflow: "hidden" }, children: /* @__PURE__ */ jsx(
+            "div",
+            {
+              style: {
+                height: "100%",
+                width: percent + "%",
+                background: job.state === "failed" ? C.red : C.accent,
+                borderRadius: 999,
+                transition: "width .2s ease"
+              }
+            }
+          ) }),
+          /* @__PURE__ */ jsx(
+            "div",
+            {
+              style: {
+                fontSize: FS.tiny,
+                color: job.state === "ok" ? C.green : job.state === "failed" ? C.red : C.fg3
+              },
+              children: job.state === "running" ? L.stt.jobRunning : job.state === "ok" ? L.stt.jobOk : fmt(L.stt.jobFailed, { error: String(job.error || "") })
+            }
+          ),
+          lines.length ? /* @__PURE__ */ jsx(
+            "pre",
+            {
+              className: "rm-log",
+              style: {
+                margin: 0,
+                maxHeight: 110,
+                overflow: "auto",
+                padding: "8px 10px",
+                border: BORDER,
+                borderRadius: 8,
+                background: "var(--ui-bg-elevated, transparent)",
+                fontSize: FS.micro,
+                lineHeight: "15px",
+                fontFamily: MONO,
+                color: C.fg3,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-all"
+              },
+              children: lines.join("\n")
+            }
+          ) : null
+        ] }) : null,
+        /* @__PURE__ */ jsxs(Panel, { ...{ key: "ext" }, style: { display: "flex", flexDirection: "column", gap: 8 }, children: [
+          /* @__PURE__ */ jsx("span", { style: { fontSize: FS.micro, color: C.fg4, letterSpacing: "0.08em", fontWeight: 500 }, children: L.stt.external }),
+          /* @__PURE__ */ jsx(Field, { ...{ key: "url" }, label: L.stt.baseUrl, children: /* @__PURE__ */ jsx(TextInput, { value: baseUrl, placeholder: L.stt.baseUrlPlaceholder, width: 220, onChange: setBaseUrl }) }),
+          /* @__PURE__ */ jsx(Field, { ...{ key: "mdl" }, label: L.stt.modelField, children: /* @__PURE__ */ jsx(TextInput, { value: sttModel, placeholder: L.stt.modelPlaceholder, width: 160, onChange: setSttModel }) }),
+          /* @__PURE__ */ jsx(Field, { ...{ key: "key" }, label: L.stt.apiKey, children: /* @__PURE__ */ jsx(
+            TextInput,
+            {
+              type: "password",
+              value: apiKey,
+              placeholder: external.hasKey ? L.stt.apiKeySet : L.stt.apiKeyPlaceholder,
+              width: 220,
+              onChange: setApiKey
+            }
+          ) }),
+          /* @__PURE__ */ jsxs("div", { ...{ key: "save" }, style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }, children: [
+            /* @__PURE__ */ jsx(Btn, { disabled: s.busy, onClick: saveExternal, children: L.stt.save }),
+            /* @__PURE__ */ jsx("span", { style: { fontSize: FS.tiny, color: C.fg4 }, children: L.stt.externalHint })
+          ] })
+        ] })
+      ]
+    }
+  );
+}
 function RemoteMicPage() {
   const s = useStore();
   const snap = s.snap;
@@ -1721,7 +2039,7 @@ function RemoteMicPage() {
   const [newCode, setNewCode] = useState("");
   const [newPhrase, setNewPhrase] = useState({ name: "", text: "" });
   const [history, setHistory] = useState(null);
-  const [selftest, setSelftest] = useState(null);
+  const selftest = s.selftest;
   const [logs, setLogs] = useState(null);
   const [devices, setDevices] = useState(null);
   const [scanning, setScanning] = useState(false);
@@ -1930,7 +2248,10 @@ function RemoteMicPage() {
                   onClick: async () => {
                     const stamp = (/* @__PURE__ */ new Date()).toLocaleTimeString("zh-CN", { hour12: false });
                     const result = await run("/mock/transcript", { text: fmt(L.page.mockText, { stamp }) });
-                    if (result && result.transcript) setSelftest(null);
+                    if (result && result.transcript) {
+                      store.selftest = null;
+                      publish();
+                    }
                   },
                   children: L.page.buttons.mock
                 }
@@ -1940,10 +2261,7 @@ function RemoteMicPage() {
                 {
                   ...{ key: "self" },
                   ghost: true,
-                  onClick: async () => {
-                    const result = await run("/selftest");
-                    if (result) setSelftest(result.transcript || null);
-                  },
+                  onClick: () => runSelftest(),
                   disabled: busy,
                   children: busy ? L.common.running : L.page.buttons.selftest
                 }
@@ -2103,6 +2421,7 @@ function RemoteMicPage() {
             ]
           }
         ),
+        /* @__PURE__ */ jsx(SttCard, { ...{ key: "stt" } }),
         /* @__PURE__ */ jsxs(
           "div",
           {
@@ -2642,5 +2961,6 @@ var plugin_default = plugin;
 export {
   plugin_default as default,
   enMessages,
+  sttSummary,
   zhMessages
 };

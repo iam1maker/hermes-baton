@@ -302,6 +302,25 @@ def selftest() -> dict:
     return call("POST", "/selftest", {}, timeout=120)
 
 
+def stt() -> dict:
+    """Speech-recognition status: local models, native engine, external service, install job."""
+    return call("GET", "/stt")
+
+
+def install_stt(what: str = "all", fp32: bool = False) -> dict:
+    """Start the background install job (models and/or the sherpa engine).
+
+    Returns as soon as the job is spawned (hence the 30 s cap — it never waits
+    for the download); poll stt_install_job() / GET /stt for progress.
+    """
+    return call("POST", "/stt/install", {"what": what, "fp32": bool(fp32)}, timeout=30)
+
+
+def stt_install_job() -> dict:
+    """The current or most recent install job ({'job': …}; job is None until one runs)."""
+    return call("GET", "/stt/install")
+
+
 def daemon_logs(lines: int = 80) -> dict:
     return call("GET", f"/logs?lines={max(1, min(400, int(lines)))}")
 

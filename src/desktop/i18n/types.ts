@@ -249,6 +249,48 @@ export interface Messages {
     empty: string
   }
 
+  /* ── speech service card (local SenseVoice install + external STT) ───── */
+  stt: {
+    card: string
+    cardHint: string
+    /** Header badge: which service answers / how it is doing. */
+    kindLocal: string
+    kindExternal: string
+    kindMissing: string
+    ready: string
+    attention: string
+    /** Status rows. */
+    engine: string
+    engineInstalled: string
+    engineMissing: string
+    installEngine: string
+    model: string
+    modelMissing: string
+    vad: string
+    vadPresent: string
+    vadMissing: string
+    language: string
+    /** Download buttons and the install job display. */
+    download: string
+    downloadFp32: string
+    jobRunning: string
+    jobOk: string
+    jobFailed: string
+    installFailed: string
+    /** External STT section. */
+    external: string
+    externalHint: string
+    baseUrl: string
+    baseUrlPlaceholder: string
+    modelField: string
+    modelPlaceholder: string
+    apiKey: string
+    apiKeySet: string
+    apiKeyPlaceholder: string
+    save: string
+    saved: string
+  }
+
   /* ── daemon notices (structured kinds + fallback) ────────────────────── */
   notices: {
     backendNotReady: string

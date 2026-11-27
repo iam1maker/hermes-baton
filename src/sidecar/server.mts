@@ -27,7 +27,7 @@ import { dirname, join, resolve as resolvePath } from 'node:path'
 
 import { SidecarTransport } from './vendor/ble/sidecar.js'
 import { RemoteMicService, hidUsageToCode, type RemoteMicState, type TranscriptEntry } from './vendor/plugin/service.js'
-import { createSenseVoiceTranscriber } from './stt/sensevoice.mjs'
+import { createSenseVoiceTranscriber, sherpaLookup } from './stt/sensevoice.mjs'
 import {
   loadDeviceProfiles,
   codeFor,
@@ -662,6 +662,7 @@ service.on('transcript', entry => {
   log(`[stt] ${entry.text.slice(0, 120)}`)
 })
 service.on('error', ({ message }) => {
+  lastSttError = message
   log(`[stt] failed: ${message}`)
   pushEvent('error', { message })
 })
@@ -728,6 +729,148 @@ function readHistory(limit = 50): unknown[] {
     })
     .filter(Boolean)
   return rows.slice(-Math.max(1, Math.min(500, limit))).reverse()
+}
+
+/* ────────────────────────── stt install ────────────────────────── */
+
+/** What POST /stt/install can fetch. */
+type InstallWhat = 'models' | 'sherpa' | 'all'
+/** Output channel of a fetch-models.mjs line: '[models] …' / '[sherpa] …' / anything else. */
+type InstallPhase = 'models' | 'sherpa' | 'other'
+
+/** One background install run (GET /stt, GET + POST /stt/install). */
+interface InstallJob {
+  id: string
+  what: InstallWhat
+  state: 'running' | 'ok' | 'failed'
+  startedAt: number
+  endedAt: number | null
+  percent: number
+  lines: string[]
+  error: string | null
+}
+
+/** The most recent install job; null until one is started. */
+let installJob: InstallJob | null = null
+/** Last speech-recognition failure (transcription error or failed install). */
+let lastSttError: string | null = null
+
+const INSTALL_LINE_CAP = 200
+
+/** Spawn fetch-models.mjs and stream every line into the job ring, the event stream and the job record. */
+function startInstall(what: InstallWhat, script: string, args: string[]): InstallJob {
+  const job: InstallJob = {
+    id: randomBytes(4).toString('hex'),
+    what,
+    state: 'running',
+    startedAt: Date.now(),
+    endedAt: null,
+    percent: 0,
+    lines: [],
+    error: null
+  }
+  installJob = job
+  const stderrLines: string[] = []
+  const emit = (line: string): void => {
+    job.lines.push(line)
+    if (job.lines.length > INSTALL_LINE_CAP) job.lines.splice(0, job.lines.length - INSTALL_LINE_CAP)
+    // percent comes from a percentage in the line; lines without one re-report the running value.
+    const percent = /(\d+(?:\.\d+)?)\s*%/.exec(line)
+    if (percent) job.percent = Math.max(0, Math.min(100, Number(percent[1])))
+    const phase: InstallPhase = line.startsWith('[models]') ? 'models' : line.startsWith('[sherpa]') ? 'sherpa' : 'other'
+    pushEvent('stt-install', { id: job.id, phase, line, percent: job.percent, state: job.state })
+  }
+  const finish = (state: 'ok' | 'failed', error: string | null): void => {
+    if (job.state !== 'running') return
+    job.state = state
+    job.endedAt = Date.now()
+    if (state === 'ok') job.percent = 100
+    job.error = error
+    if (error) lastSttError = error
+    log(`[stt] install finished ${job.id} state=${state} ${job.endedAt - job.startedAt}ms`)
+    pushEvent('stt-install', { id: job.id, phase: 'other', line: '', percent: job.percent, state: job.state })
+    if (state !== 'ok') return
+    try {
+      // Point the config at the freshly installed model set — but never over an explicit user choice.
+      // applyPatch persists settings.json through its own atomic writer; never hand-write it here.
+      if (!config.modelDir) {
+        applyPatch({
+          modelDir: join(STATE_DIR, 'models', 'sensevoice-onnx'),
+          vadModel: join(STATE_DIR, 'models', 'silero-vad', 'silero_vad.onnx')
+        })
+      }
+      local.dispose()
+      local = buildLocal()
+      service.setTranscriber(transcriberFor(config))
+      pushEvent('state', { state: service.state, detail: lastDetail })
+    } catch (error) {
+      log(`[stt] post-install reload failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  log(`[stt] install started ${job.id} what=${what}`)
+  let child
+  try {
+    child = spawn(process.execPath, [script, ...args], { stdio: ['ignore', 'pipe', 'pipe'] })
+  } catch (error) {
+    finish('failed', error instanceof Error ? error.message : String(error))
+    return job
+  }
+  const wire = (stream: NodeJS.ReadableStream, fromStderr: boolean): void => {
+    let buffer = ''
+    const take = (line: string): void => {
+      if (!line.trim()) return
+      if (fromStderr) stderrLines.push(line)
+      emit(line)
+    }
+    stream.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString()
+      let index
+      while ((index = buffer.indexOf('\n')) >= 0) {
+        take(buffer.slice(0, index))
+        buffer = buffer.slice(index + 1)
+      }
+    })
+    stream.on('end', () => take(buffer))
+  }
+  wire(child.stdout, false)
+  wire(child.stderr, true)
+  child.on('error', error => finish('failed', error.message))
+  // 'close' (not 'exit'): the exit handlers must see the complete stderr tail.
+  child.on('close', code => {
+    if (code === 0) return finish('ok', null)
+    finish('failed', stderrLines.slice(-3).join('\n') || `fetch-models.mjs exited with code ${code}`)
+  })
+  return job
+}
+
+/** GET /stt: what recognition is configured, what is installed, what the installer is doing. */
+function sttReport(): unknown {
+  const lookup = sherpaLookup()
+  const kind = transcriberKind(config)
+  return {
+    kind,
+    ready:
+      (kind === 'openai' && Boolean(config.sttBaseUrl)) ||
+      (local.paths.ok && lookup.found !== null),
+    language: config.language,
+    local: {
+      model: local.paths.model,
+      precision: local.paths.precision,
+      wanted: local.paths.wanted,
+      tokens: local.paths.tokens,
+      vad: local.paths.vad,
+      dir: local.paths.dir,
+      problems: local.paths.problems
+    },
+    engine: { ok: lookup.found !== null, path: lookup.found, tried: lookup.candidates },
+    external: {
+      baseUrl: config.sttBaseUrl || null,
+      model: config.sttBaseUrl ? config.sttModel : null,
+      hasKey: Boolean(config.sttApiKey)
+    },
+    job: installJob,
+    lastError: lastSttError
+  }
 }
 
 /* ────────────────────────── state ────────────────────────── */
@@ -1307,6 +1450,35 @@ const server = createServer(async (req, res) => {
 
       case 'GET /logs':
         return json(res, 200, { logs: logs.slice(-Number(url.searchParams.get('lines') || 80)) })
+
+      case 'GET /stt':
+        return json(res, 200, sttReport())
+
+      case 'GET /stt/install':
+        return json(res, 200, { job: installJob })
+
+      case 'POST /stt/install': {
+        const body = await readBody(req)
+        const what = String(body?.what || 'all') as InstallWhat
+        if (what !== 'models' && what !== 'sherpa' && what !== 'all') {
+          throw new Error(`unknown install target: ${what} (expected "models", "sherpa" or "all")`)
+        }
+        if (installJob && installJob.state === 'running') {
+          return json(res, 409, { error: 'an install job is already running', job: installJob })
+        }
+        const script = join(ROOT, '..', 'scripts', 'fetch-models.mjs')
+        if (!existsSync(script)) {
+          return json(res, 500, { error: `install script missing: ${script} (rebuild with node dev/build.mjs)` })
+        }
+        const args = [
+          // engine flags: --with-sherpa for 'all', --sherpa-only for the engine alone, none for models.
+          ...(what === 'all' ? ['--with-sherpa'] : what === 'sherpa' ? ['--sherpa-only'] : []),
+          '--dir', join(STATE_DIR, 'models'),
+          '--sherpa-dir', join(STATE_DIR, 'sherpa'),
+          ...(body?.fp32 === true ? ['--fp32'] : [])
+        ]
+        return json(res, 202, { job: startInstall(what, script, args) })
+      }
 
       default:
         return json(res, 404, { error: `no route ${req.method} ${url.pathname}` })

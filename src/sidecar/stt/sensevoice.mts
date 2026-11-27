@@ -1,20 +1,24 @@
 /**
  * Local SenseVoice recogniser (sherpa-onnx, offline).
  *
- * Reuses the model files and the native binding that the DSH voice-input
- * bundle already downloaded — nothing is fetched at runtime:
+ * Nothing is fetched at runtime: `node scripts/fetch-models.mjs --with-sherpa`
+ * (or 'Install engine' on the Baton page) installs the model files and the
+ * pinned sherpa-onnx-node engine into the state directory:
  *
- *   ~/.dsh/speech-to-text/sensevoice/models/sensevoice-onnx/{model.int8.onnx,tokens.txt}
- *   ~/.dsh/speech-to-text/sensevoice/models/silero/silero_vad.onnx
- *   ~/.dsh/profiles/desktop/node_modules/sherpa-onnx-node
+ *   <STATE_DIR>/models/sensevoice-onnx/{model.int8.onnx,tokens.txt}
+ *   <STATE_DIR>/models/silero-vad/silero_vad.onnx
+ *   <STATE_DIR>/sherpa/node_modules/sherpa-onnx-node
  *
- * The inference recipe (VAD segmentation + first-segment onset padding) is the
- * one DSH uses; it is copied here because the same audio front-end must produce
- * the same text. Every override is an env var so a second install can point at
- * its own copies:
+ * The defaults below still point at the legacy shared speech-model directory so
+ * an existing install keeps working. Every override is an env var (or a
+ * settings.json value) so a second install can point at its own copies:
  *
  *   BATON_MODEL_DIR / BATON_VAD_MODEL / BATON_SHERPA
  *   (legacy REMOTE_MIC_* names still work)
+ *
+ * The inference recipe (VAD segmentation + first-segment onset padding) is
+ * copied from the voice front-end this module was ported from, because the same
+ * audio front-end must produce the same text.
  */
 
 import { existsSync, readdirSync } from 'node:fs'
@@ -25,12 +29,14 @@ import { join } from 'node:path'
 const HOME = homedir()
 const envAny = (key: string): string | undefined =>
   process.env[`BATON_${key}`] || process.env[`REMOTE_MIC_${key}`]
+/** Plugin state root: the installer writes models and the engine under this. */
+const STATE_DIR = envAny('STATE_DIR') || join(HOME, '.hermes', 'baton')
 
-export const DEFAULT_MODEL_DIR = join(
-  HOME,
-  '.dsh/speech-to-text/sensevoice/models/sensevoice-onnx'
-)
-export const DEFAULT_VAD_MODEL = join(HOME, '.dsh/speech-to-text/sensevoice/models/silero/silero_vad.onnx')
+/* Defaults follow the installer: `fetch-models.mjs` writes <dir>/sensevoice-onnx
+ * and <dir>/silero-vad under the state root, so a fresh install needs no config.
+ * Upgraders keep working through an explicit modelDir/vadModel in settings.json. */
+export const DEFAULT_MODEL_DIR = join(STATE_DIR, 'models', 'sensevoice-onnx')
+export const DEFAULT_VAD_MODEL = join(STATE_DIR, 'models', 'silero-vad', 'silero_vad.onnx')
 
 /* ── sherpa-onnx native module: only the surface we actually use ─────── */
 
@@ -102,10 +108,21 @@ function sherpaCandidates(): string[] {
   const out: string[] = []
   const override = envAny('SHERPA')
   if (override) out.push(override)
-  out.push(join(import.meta.dirname, 'node_modules/sherpa-onnx-node'))
-  out.push(join(HOME, '.dsh/profiles/desktop/node_modules/sherpa-onnx-node'))
-  out.push(join(HOME, '.dsh/profiles/node_modules/sherpa-onnx-node'))
+  out.push(join(import.meta.dirname, 'node_modules', 'sherpa-onnx-node'))
+  out.push(join(import.meta.dirname, '..', 'node_modules', 'sherpa-onnx-node'))
+  out.push(join(STATE_DIR, 'sherpa', 'node_modules', 'sherpa-onnx-node'))
   return out
+}
+
+/**
+ * Report where the engine is (or would be installed) for the /stt routes.
+ * Never loads the native module — `found` is the first candidate directory
+ * that actually contains sherpa-onnx.js.
+ */
+export function sherpaLookup(): { candidates: string[]; found: string | null } {
+  const candidates = sherpaCandidates()
+  const found = candidates.find(dir => existsSync(join(dir, 'sherpa-onnx.js'))) ?? null
+  return { candidates, found }
 }
 
 function loadSherpa(): SherpaModule {
@@ -122,9 +139,13 @@ function loadSherpa(): SherpaModule {
     }
   }
   const error = new Error(
-    `sherpa-onnx native module not found (tried ${tried.length} places).\n` +
-      tried.map(line => `  · ${line}`).join('\n') +
-      '\nfix: reinstall the DSH voice-input bundle, or npm i sherpa-onnx-node (sherpa-onnx-darwin-arm64), then point REMOTE_MIC_SHERPA at it.'
+    'the local speech engine is not installed (the pinned npm package "sherpa-onnx-node").\n' +
+      'fixes (pick one):\n' +
+      '  · run `node scripts/fetch-models.mjs --with-sherpa` in the plugin directory\n' +
+      "  · click 'Install engine' on the Baton page\n" +
+      '  · set BATON_SHERPA to an existing sherpa-onnx-node installation\n' +
+      `tried ${tried.length} places:\n` +
+      tried.map(line => `  · ${line}`).join('\n')
   ) as CodedError
   error.code = 'SHERPA_MISSING'
   throw error

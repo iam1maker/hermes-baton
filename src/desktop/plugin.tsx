@@ -230,6 +230,11 @@ interface EventPayload {
   message?: string
   kind?: string
   selftest?: boolean
+  /** `stt-install` progress: job id, phase, one log line, percent, job state. */
+  id?: string
+  phase?: string
+  line?: string
+  percent?: number
 }
 interface DaemonEvent {
   seq?: number
@@ -270,6 +275,58 @@ interface LogsResponse {
 
 interface ConfigResponse {
   config?: EditableConfig
+}
+
+/* ── GET /stt (sidecar stt status) + POST /stt/install (download job) ──── */
+
+interface SttLocalInfo {
+  model?: string | null
+  precision?: string | null
+  wanted?: string
+  tokens?: number
+  vad?: string | null
+  dir?: string
+  problems?: string[]
+}
+
+interface SttEngineInfo {
+  ok?: boolean
+  path?: string | null
+  tried?: string[]
+}
+
+interface SttExternalInfo {
+  baseUrl?: string | null
+  model?: string | null
+  hasKey?: boolean
+}
+
+interface SttJobInfo {
+  id?: string
+  what?: string
+  state?: string
+  startedAt?: number
+  endedAt?: number | null
+  percent?: number
+  lines?: string[]
+  error?: string | null
+}
+
+/** GET /stt response. */
+interface SttInfo {
+  kind?: string
+  ready?: boolean
+  language?: string
+  local?: SttLocalInfo
+  engine?: SttEngineInfo
+  external?: SttExternalInfo
+  job?: SttJobInfo | null
+  lastError?: string | null
+}
+
+/** POST /stt/install response (202) and GET /stt.install job snapshot. */
+interface SttInstallResponse {
+  job?: SttJobInfo | null
 }
 
 /** Transcript entry returned by /selftest and /mock/transcript. */
@@ -348,6 +405,8 @@ let CTX: PluginContext | null = null
 
 interface Store {
   snap: StateSnapshot | null // /state snapshot
+  stt: SttInfo | null // GET /stt snapshot (speech service card)
+  selftest: TranscriptInfo | null // last /selftest transcript, shown by the link card
   error: string | null // most recent backend error, already stringified
   cursor: number | null // event cursor; null = head not located yet
   bootId: number | null // daemon instance id (bootAt); a change means seq restarted, so the cursor must reset
@@ -358,6 +417,8 @@ interface Store {
 
 const store: Store = {
   snap: null,
+  stt: null,
+  selftest: null,
   error: null,
   cursor: null,
   bootId: null,
@@ -505,7 +566,128 @@ async function refreshState(): Promise<void> {
   } catch (error) {
     store.error = errText(error)
   }
+  refreshStt()
   publish()
+}
+
+/* ── Speech service status (GET /stt) and install jobs (POST /stt/install) ──
+ * /stt rides the same refresh cycle as /state (no second timer): refreshState()
+ * fires it best-effort after every snapshot. `stt-install` events append to the
+ * job's lines in between, so the progress block stays live without refetching.
+ */
+
+/** Last job whose finished state was already acted on (one refresh + one self-test per job). */
+let sttDoneJob: string | null = null
+
+async function refreshStt(): Promise<void> {
+  try {
+    const info = await api<SttInfo>('/stt', { timeoutMs: 15000 })
+    const incoming = (info && info.job) || null
+    const prior = (store.stt && store.stt.job) || null
+    if (incoming && prior && String(incoming.id || '') === String(prior.id || '')) {
+      // Same job: the event stream appends lines ahead of the snapshot — keep the longer list.
+      const priorLines = Array.isArray(prior.lines) ? prior.lines : []
+      const incomingLines = Array.isArray(incoming.lines) ? incoming.lines : []
+      incoming.lines = priorLines.length >= incomingLines.length ? priorLines : incomingLines
+    }
+    store.stt = info
+    watchSttJob()
+    publish()
+  } catch {
+    /* an old backend without /stt leaves the card on its last known state */
+  }
+}
+
+/** A finished job: refresh /state once (models changed), and prove recognition when it succeeded. */
+function watchSttJob(): void {
+  const job = (store.stt && store.stt.job) || null
+  if (!job || !job.state || job.state === 'running') return
+  const id = String(job.id || '')
+  if (id === sttDoneJob) return
+  sttDoneJob = id
+  refreshState()
+  if (job.state === 'ok') runSelftest()
+}
+
+/** POST /selftest through one shared path: the button and the post-install check both land here. */
+async function runSelftest(): Promise<void> {
+  store.busy = true
+  publish()
+  try {
+    const result = await post<SelftestResponse>('/selftest')
+    store.selftest = (result && result.transcript) || null
+  } catch (error) {
+    toast(errText(error), 'error')
+  } finally {
+    store.busy = false
+    publish()
+    refreshState()
+  }
+}
+
+/** POST /stt/install: start a download job (202 { job }; 409 while one is running). */
+async function installStt(what: 'models' | 'sherpa' | 'all', fp32: boolean): Promise<void> {
+  store.busy = true
+  publish()
+  try {
+    const body: Record<string, unknown> = what === 'sherpa' ? { what: 'sherpa' } : { what, fp32 }
+    const res = await post<SttInstallResponse>('/stt/install', body)
+    const job = (res && res.job) || null
+    if (job) {
+      const id = String(job.id || '')
+      if (id !== String(((store.stt && store.stt.job) || {}).id || '')) {
+        sttDoneJob = null // a new job gets its own finish handling
+      }
+      store.stt = { ...(store.stt || {}), job }
+    }
+  } catch (error) {
+    toast(fmt(L.stt.installFailed, { error: errText(error) }), 'error')
+  } finally {
+    store.busy = false
+    publish()
+    refreshStt()
+  }
+}
+
+/** Last path segment of a model / module path (display only). */
+function pathBasename(value: string | null | undefined): string {
+  return String(value || '').split('/').filter(Boolean).pop() || ''
+}
+
+/** Pure summary of GET /stt for the speech-service card: no JSX, no hooks (exported for tests). */
+export interface SttSummary {
+  kindLabel: string
+  readyDot: string
+  engineLabel: string
+  modelLabel: string
+  engineMissing: boolean
+  needsInstall: boolean
+}
+
+export function sttSummary(state: SttInfo | null): SttSummary {
+  const info: SttInfo = state || {}
+  const kind = String(info.kind || '')
+  const local: SttLocalInfo = info.local || {}
+  const engine: SttEngineInfo = info.engine || {}
+  const problems = Array.isArray(local.problems) ? local.problems : []
+  const kindLabel =
+    kind === 'openai' ? L.stt.kindExternal : kind === 'sensevoice' ? L.stt.kindLocal : L.stt.kindMissing
+  return {
+    kindLabel,
+    readyDot: info.ready ? C.green : C.orange,
+    engineLabel:
+      engine.ok && engine.path
+        ? fmt(L.stt.engineInstalled, { name: pathBasename(engine.path) })
+        : L.stt.engineMissing,
+    modelLabel: local.model
+      ? pathBasename(local.model) + (local.precision ? L.common.dot + String(local.precision) : '')
+      : problems.length
+        ? problems.join(L.common.listSeparator)
+        : L.stt.modelMissing,
+    engineMissing: !engine.ok,
+    // An external service answers regardless of what is installed locally.
+    needsInstall: kind !== 'openai' && (!engine.ok || !local.model)
+  }
 }
 
 /** The daemon config is the single source of truth: the engine re-syncs on every snapshot. */
@@ -1074,6 +1256,23 @@ function handleEvent(event: DaemonEvent): void {
     publish()
     return
   }
+  if (type === 'stt-install') {
+    // Install progress: append to the job's lines in place — no refetch, the next
+    // /stt snapshot only reconciles what the events already delivered.
+    const id = String(payload.id || '')
+    const current = (store.stt && store.stt.job) || null
+    const job: SttJobInfo =
+      current && String(current.id || '') === id
+        ? current
+        : { id, what: 'all', state: 'running', percent: 0, lines: [] }
+    if (!Array.isArray(job.lines)) job.lines = []
+    if (payload.line) job.lines.push(String(payload.line))
+    if (typeof payload.percent === 'number') job.percent = payload.percent
+    if (payload.state) job.state = String(payload.state)
+    store.stt = { ...(store.stt || {}), job }
+    publish()
+    return
+  }
   if (type === 'error') {
     if (listenActive()) {
       listenWin.note = String(payload.message || L.notices.recognitionFailed)
@@ -1491,13 +1690,15 @@ interface TextInputProps {
   onChange: (value: string) => void
   placeholder?: string
   width?: string | number
+  type?: string
 }
 
-function TextInput({ value, onChange, placeholder, width }: TextInputProps) {
+function TextInput({ value, onChange, placeholder, width, type }: TextInputProps) {
   return (
     <input
       value={value || ''}
       className="rm-field"
+      type={type || 'text'}
       placeholder={placeholder}
       onChange={e => onChange(e.target.value)}
       style={{
@@ -1871,6 +2072,178 @@ async function patchConfig(patch: Partial<EditableConfig>): Promise<boolean> {
   }
 }
 
+/* ── Speech service: what local recognition runs on, and how to fix it ──── */
+
+function SttCard() {
+  const s = useStore()
+  const info: SttInfo = s.stt || {}
+  const summary = sttSummary(s.stt)
+  const local: SttLocalInfo = info.local || {}
+  const external: SttExternalInfo = info.external || {}
+  const job: SttJobInfo = info.job || {}
+  const running = job.state === 'running' || s.busy
+  const values: EditableConfig = (s.snap && s.snap.config) || {}
+  // External-service fields: base URL / model follow the daemon config until the user types
+  // (same rule as Num); the API key never echoes back — GET /config masks it.
+  const [baseUrl, setBaseUrl] = useState(String(values.sttBaseUrl || ''))
+  const [sttModel, setSttModel] = useState(String(values.sttModel || ''))
+  const [apiKey, setApiKey] = useState('')
+  useEffect(() => setBaseUrl(String(values.sttBaseUrl || '')), [values.sttBaseUrl])
+  useEffect(() => setSttModel(String(values.sttModel || '')), [values.sttModel])
+  const lines = Array.isArray(job.lines) ? job.lines.slice(-6) : []
+  const percent = Math.max(0, Math.min(100, Number(job.percent) || 0))
+
+  const saveExternal = async (): Promise<void> => {
+    const patch: Partial<EditableConfig> = { sttBaseUrl: baseUrl.trim(), sttModel: sttModel.trim() }
+    // The stored key is masked on read: only send one when the field was filled in.
+    if (apiKey.trim()) patch.sttApiKey = apiKey.trim()
+    const ok = await patchConfig(patch)
+    if (ok) {
+      setApiKey('')
+      toast(L.stt.saved, 'info')
+      refreshState()
+    }
+  }
+
+  return (
+    <Card
+      {...{ key: 'stt' }}
+      title={L.stt.card}
+      hint={L.stt.cardHint}
+      action={
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '2px 9px',
+            borderRadius: 999,
+            border: '1px solid ' + TINT(summary.readyDot, 32),
+            background: TINT(summary.readyDot, 12),
+            fontSize: FS.tiny,
+            color: C.fg2,
+            lineHeight: '16px'
+          }}
+        >
+          <Dot {...{ key: 'd' }} tone={summary.readyDot} pulse={running} />
+          <span {...{ key: 'k' }}>{summary.kindLabel}</span>
+          <span {...{ key: 'r' }} style={{ color: C.fg4 }}>{info.ready ? L.stt.ready : L.stt.attention}</span>
+        </span>
+      }
+    >
+      <Field label={L.stt.engine}>
+        <span style={{ fontSize: FS.small, color: summary.engineMissing ? C.orange : C.fg2 }}>{summary.engineLabel}</span>
+        <Btn ghost disabled={running} onClick={() => installStt('sherpa', false)}>
+          {L.stt.installEngine}
+        </Btn>
+      </Field>
+      <Field label={L.stt.model}>
+        <span
+          style={{
+            fontSize: FS.small,
+            color: summary.needsInstall ? C.orange : C.fg2,
+            maxWidth: 280,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {summary.modelLabel}
+        </span>
+      </Field>
+      <Field label={L.stt.vad}>
+        <span style={{ fontSize: FS.small, color: local.vad ? C.fg2 : C.orange }}>
+          {local.vad ? fmt(L.stt.vadPresent, { name: pathBasename(local.vad) }) : L.stt.vadMissing}
+        </span>
+      </Field>
+      <Field label={L.stt.language}>
+        <span style={{ fontSize: FS.small, color: C.fg2 }}>{String(info.language || 'zh')}</span>
+      </Field>
+      <div {...{ key: 'dl' }} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <Btn {...{ key: 'i8' }} disabled={running} onClick={() => installStt('all', false)}>
+          {L.stt.download}
+        </Btn>
+        <Btn {...{ key: 'f32' }} disabled={running} onClick={() => installStt('all', true)}>
+          {L.stt.downloadFp32}
+        </Btn>
+      </div>
+      {job.state ? (
+        <Panel {...{ key: 'job' }} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ height: 3, borderRadius: 999, background: TINT(C.fg4, 26), overflow: 'hidden' }}>
+            <div
+              style={{
+                height: '100%',
+                width: percent + '%',
+                background: job.state === 'failed' ? C.red : C.accent,
+                borderRadius: 999,
+                transition: 'width .2s ease'
+              }}
+            />
+          </div>
+          <div
+            style={{
+              fontSize: FS.tiny,
+              color: job.state === 'ok' ? C.green : job.state === 'failed' ? C.red : C.fg3
+            }}
+          >
+            {job.state === 'running'
+              ? L.stt.jobRunning
+              : job.state === 'ok'
+                ? L.stt.jobOk
+                : fmt(L.stt.jobFailed, { error: String(job.error || '') })}
+          </div>
+          {lines.length ? (
+            <pre
+              className="rm-log"
+              style={{
+                margin: 0,
+                maxHeight: 110,
+                overflow: 'auto',
+                padding: '8px 10px',
+                border: BORDER,
+                borderRadius: 8,
+                background: 'var(--ui-bg-elevated, transparent)',
+                fontSize: FS.micro,
+                lineHeight: '15px',
+                fontFamily: MONO,
+                color: C.fg3,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all'
+              }}
+            >
+              {lines.join('\n')}
+            </pre>
+          ) : null}
+        </Panel>
+      ) : null}
+      <Panel {...{ key: 'ext' }} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <span style={{ fontSize: FS.micro, color: C.fg4, letterSpacing: '0.08em', fontWeight: 500 }}>{L.stt.external}</span>
+        <Field {...{ key: 'url' }} label={L.stt.baseUrl}>
+          <TextInput value={baseUrl} placeholder={L.stt.baseUrlPlaceholder} width={220} onChange={setBaseUrl} />
+        </Field>
+        <Field {...{ key: 'mdl' }} label={L.stt.modelField}>
+          <TextInput value={sttModel} placeholder={L.stt.modelPlaceholder} width={160} onChange={setSttModel} />
+        </Field>
+        <Field {...{ key: 'key' }} label={L.stt.apiKey}>
+          <TextInput
+            type="password"
+            value={apiKey}
+            placeholder={external.hasKey ? L.stt.apiKeySet : L.stt.apiKeyPlaceholder}
+            width={220}
+            onChange={setApiKey}
+          />
+        </Field>
+        <div {...{ key: 'save' }} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <Btn disabled={s.busy} onClick={saveExternal}>
+            {L.stt.save}
+          </Btn>
+          <span style={{ fontSize: FS.tiny, color: C.fg4 }}>{L.stt.externalHint}</span>
+        </div>
+      </Panel>
+    </Card>
+  )
+}
+
 function RemoteMicPage() {
   const s = useStore()
   const snap = s.snap
@@ -1899,7 +2272,7 @@ function RemoteMicPage() {
   const [newCode, setNewCode] = useState('')
   const [newPhrase, setNewPhrase] = useState({ name: '', text: '' })
   const [history, setHistory] = useState<HistoryEntry[] | null>(null)
-  const [selftest, setSelftest] = useState<TranscriptInfo | null>(null)
+  const selftest = s.selftest
   const [logs, setLogs] = useState<string[] | null>(null)
   const [devices, setDevices] = useState<CandidateDevice[] | null>(null)
   const [scanning, setScanning] = useState(false)
@@ -2139,7 +2512,10 @@ function RemoteMicPage() {
                 onClick={async () => {
                   const stamp = new Date().toLocaleTimeString('zh-CN', { hour12: false })
                   const result = await run<MockTranscriptResponse>('/mock/transcript', { text: fmt(L.page.mockText, { stamp }) })
-                  if (result && result.transcript) setSelftest(null)
+                  if (result && result.transcript) {
+                    store.selftest = null
+                    publish()
+                  }
                 }}
               >
                 {L.page.buttons.mock}
@@ -2147,10 +2523,7 @@ function RemoteMicPage() {
               <Btn
                 {...{ key: 'self' }}
                 ghost
-                onClick={async () => {
-                  const result = await run<SelftestResponse>('/selftest')
-                  if (result) setSelftest(result.transcript || null)
-                }}
+                onClick={() => runSelftest()}
                 disabled={busy}
               >
                 {busy ? L.common.running : L.page.buttons.selftest}
@@ -2333,6 +2706,9 @@ function RemoteMicPage() {
             </div>
           )}
         </Card>
+
+        {/* ── Speech service: local SenseVoice setup + external STT ── */}
+        <SttCard {...{ key: 'stt' }} />
 
         {/* ── Two columns: voice delivery / canned phrases ── */}
         <div

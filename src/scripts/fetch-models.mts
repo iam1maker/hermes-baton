@@ -1,42 +1,67 @@
 #!/usr/bin/env node
 /**
- * fetch-models.mts — download (or import) the two ONNX files Baton needs.
+ * fetch-models.mts — download (or import) the ONNX files Baton needs, and
+ * optionally install the pinned sherpa-onnx-node native engine.
  *
  *   node scripts/fetch-models.mjs                 # download into the plugin state dir
  *   node scripts/fetch-models.mjs --from ~/.dsh/speech-to-text/sensevoice/models/sensevoice-onnx
  *   node scripts/fetch-models.mjs --fp32          # also fetch model.onnx (894 MiB)
+ *   node scripts/fetch-models.mjs --with-sherpa   # models + native engine
+ *   node scripts/fetch-models.mjs --sherpa-only   # native engine only
  *   node scripts/fetch-models.mjs --help
  *
  * Why a script instead of npm dependencies: the models are 230 MB+ and do not
  * belong in git, and the plugin deliberately has no runtime dependencies beyond
- * the host's node. This uses node:https only, follows redirects (HuggingFace and
- * GitHub Releases both hand out signed CDN URLs), resumes with a Range request,
- * and prints a sha256 so two machines can be compared.
+ * the host's node. The model downloads use node:https only, follow redirects
+ * (HuggingFace and GitHub Releases both hand out signed CDN URLs), resume with a
+ * Range request, and print a sha256 so two machines can be compared.
+ *
+ * The native engine (sherpa-onnx-node) is the one thing that must come from npm:
+ * it ships a prebuilt platform binary per architecture. We install it into the
+ * state directory with `npm install --prefix <tmp> --no-save` and then copy the
+ * packages across, so no package.json appears in this repository and nothing is
+ * added to the plugin's own dependency graph.
+ *
+ * Every progress line from the model phase is prefixed [models] and every line
+ * from the engine phase [sherpa]; the daemon parses <n>% out of those lines.
  *
  * Exit codes: 0 = all target files present and verified; 1 = a file is missing
- * or failed verification; 2 = bad usage.
+ * or failed verification / the engine failed to install; 2 = bad usage.
  */
 
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   copyFileSync,
+  cpSync,
   createReadStream,
   createWriteStream,
   existsSync,
   mkdirSync,
+  mkdtempSync,
+  readFileSync,
   readdirSync,
   renameSync,
+  rmSync,
   statSync,
   unlinkSync
 } from 'node:fs'
 import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage } from 'node:http'
 import { get as httpsGet, request as httpsRequest } from 'node:https'
 import { connect as tlsConnect } from 'node:tls'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import type { Duplex } from 'node:stream'
 
 const STATE_DIR = process.env.BATON_STATE_DIR || process.env.REMOTE_MIC_STATE_DIR || join(homedir(), '.hermes', 'baton')
+
+/**
+ * Pinned on purpose: the native N-API addon's ABI and its platform binary pair
+ * were measured on macOS arm64 with version 1.13.8, and a newer release can
+ * change the addon ABI (or the [sherpa-onnx-<os>-<arch>] split) without notice.
+ */
+const SHERPA_VERSION = '1.13.8'
+const SHERPA_DIR = join(STATE_DIR, 'sherpa')
 
 /** One downloadable file. `sha256: null` means the digest is printed but not enforced. */
 interface ModelFile {
@@ -97,24 +122,35 @@ OPTIONS
   --fp32              also fetch model.onnx (894 MiB, adds punctuation)
   --url <name>=<url>  override a download URL, repeatable. <name> is one of:
                       model.int8.onnx | tokens.txt | silero_vad.onnx | model.onnx
-  --force             re-download even when the local file matches size + sha256
+  --with-sherpa       also install the native engine sherpa-onnx-node ${SHERPA_VERSION}
+                      (pinned) into <sherpa-dir>/node_modules, next to the models
+  --sherpa-only       install the native engine only; do not touch the model files
+  --sherpa-dir <path> engine install root (default: ${SHERPA_DIR})
+                      layout: <path>/node_modules/sherpa-onnx-node (+ sherpa-onnx-<os>-<arch>)
+  --force             re-download / reinstall even when the local copy verifies
   --help              this text
 
 WHAT IT DOES
   · resumes an interrupted download (Range request against the .part file)
-  · prints progress every 10%
+  · prints progress every 10%, prefixed [models]; engine lines are prefixed [sherpa]
   · verifies byte size and, for pinned files, sha256
   · skips a file that is already correct
-  · never deletes anything except its own <file>.part on completion
+  · installs the engine with 'npm install --prefix <tmp> --no-save', copies the
+    packages into place, then loads it in a child 'node -e' to prove it works
+  · never deletes anything except its own <file>.part and install temp dir
+
+  The native engine is optional: when sttBaseUrl / sttModel / sttApiKey point at
+  an OpenAI-compatible transcription service, nothing loads sherpa-onnx.
 
 AFTERWARDS
-  Point the daemon at the new paths. The daemon's own defaults still look at the
-  DSH install, so set both paths once (there is no model-path field on the
-  desktop page in this build):
+  Nothing to configure: the daemon's defaults are ${STATE_DIR}/models/sensevoice-onnx
+  and ${STATE_DIR}/models/silero-vad/silero_vad.onnx, which is exactly where this
+  script writes. Only when the files live somewhere else do you point the daemon
+  at them once (the desktop page has no model-path field in this build):
 
     TOKEN=$(cat ${STATE_DIR}/token)
     curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \\
-      -d '{"patch":{"modelDir":"${STATE_DIR}/models/sensevoice-onnx","vadModel":"${STATE_DIR}/models/silero-vad/silero_vad.onnx"}}' \\
+      -d '{"patch":{"modelDir":"/path/to/sensevoice-onnx","vadModel":"/path/to/silero_vad.onnx"}}' \\
       http://127.0.0.1:8791/config
 
   Or skip local models entirely and set sttBaseUrl / sttModel / sttApiKey to an
@@ -129,12 +165,26 @@ interface Options {
   fromVad: string
   fp32: boolean
   force: boolean
+  withSherpa: boolean
+  sherpaOnly: boolean
+  sherpaDir: string
   urls: Record<string, string>
   help: boolean
 }
 
 function parseArgs(argv: string[]): Options {
-  const opts: Options = { dir: join(STATE_DIR, 'models'), from: '', fromVad: '', fp32: false, force: false, urls: {}, help: false }
+  const opts: Options = {
+    dir: join(STATE_DIR, 'models'),
+    from: '',
+    fromVad: '',
+    fp32: false,
+    force: false,
+    withSherpa: false,
+    sherpaOnly: false,
+    sherpaDir: SHERPA_DIR,
+    urls: {},
+    help: false
+  }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     const value = (): string => {
@@ -149,6 +199,9 @@ function parseArgs(argv: string[]): Options {
     else if (arg === '--from-vad') opts.fromVad = resolve(value())
     else if (arg === '--fp32') opts.fp32 = true
     else if (arg === '--force') opts.force = true
+    else if (arg === '--with-sherpa') opts.withSherpa = true
+    else if (arg === '--sherpa-only') opts.sherpaOnly = true
+    else if (arg === '--sherpa-dir') opts.sherpaDir = resolve(value())
     else if (arg === '--url') {
       const spec = value()
       const at = spec.indexOf('=')
@@ -158,6 +211,7 @@ function parseArgs(argv: string[]): Options {
     else throw new Error(`unexpected argument: ${arg}`)
   }
   if (!opts.dir) throw new Error('--dir must not be empty')
+  if (!opts.sherpaDir) throw new Error('--sherpa-dir must not be empty')
   return opts
 }
 
@@ -259,6 +313,28 @@ const human = (bytes: number): string => {
   return `${bytes} B`
 }
 
+/**
+ * Progress lines are tagged: the daemon reads the daemon's stdout and pulls a
+ * percentage out with a regex, and the tag says whether it belongs to the model
+ * download or the engine install. Human-readable summary lines stay untagged.
+ */
+function logModels(line: string): void {
+  console.log(`[models] ${line}`)
+}
+
+function logSherpa(line: string): void {
+  console.log(`[sherpa] ${line}`)
+}
+
+/** Re-emit captured child output (npm, node -e) one line at a time, tagged. */
+function logCaptured(tag: 'models' | 'sherpa', text: string, toStderr = false): void {
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    if (toStderr) console.error(`[${tag}] ${line}`)
+    else console.log(`[${tag}] ${line}`)
+  }
+}
+
 function sha256File(file: string): Promise<string> {
   return new Promise<string>((resolvePromise, reject) => {
     const hash = createHash('sha256')
@@ -306,7 +382,7 @@ async function downloadOne(url: string, dest: string, { size, sha256, label, for
   const total = Number(reply['content-length'] || 0) + (statusCode === 206 ? have : 0)
   const startAt = statusCode === 206 ? have : 0
   if (total && size && total !== size) {
-    console.warn(`  ! server reports ${human(total)}, expected ${human(size)} (continuing; sha256 decides)`)
+    logModels(`! server reports ${human(total)}, expected ${human(size)} (continuing; sha256 decides)`)
   }
 
   if (statusCode !== 416 && response.readable) {
@@ -320,7 +396,7 @@ async function downloadOne(url: string, dest: string, { size, sha256, label, for
           const now = Math.min(10, Math.floor((received / total) * 10))
           while (bucket < now) {
             bucket += 1
-            process.stdout.write(`  ${label}: ${bucket * 10}% (${human(received)} / ${human(total)})\n`)
+            logModels(`${label}: ${bucket * 10}% (${human(received)} / ${human(total)})`)
           }
         }
       })
@@ -372,17 +448,181 @@ async function importFrom(fromDir: string, opts: Options): Promise<void> {
     [join(fromDir, 'tokens.txt'), join(opts.dir, 'sensevoice-onnx', 'tokens.txt')],
     [vad, join(opts.dir, 'silero-vad', 'silero_vad.onnx')]
   ]
-  console.log(`importing (offline): ${fromDir}`)
+  logModels(`importing (offline): ${fromDir}`)
   for (const [src, dest] of targets) {
     mkdirSync(dirname(dest), { recursive: true })
     const bytes = statSync(src).size
     copyFileSync(src, dest)
     const digest = await sha256File(dest)
-    console.log(`  ✓ ${dest}  ${human(bytes)}  sha256=${digest}`)
+    logModels(`✓ ${dest}  ${human(bytes)}  sha256=${digest}`)
   }
 }
 
+/* ────────────────────── native engine ────────────────────── */
+
+const SHERPA_PACKAGE = 'sherpa-onnx-node'
+
+/** `sherpa-onnx-node` plus its platform siblings (`sherpa-onnx-darwin-arm64`, …). */
+function listSherpaPackages(modulesDir: string): string[] {
+  if (!existsSync(modulesDir)) return []
+  return readdirSync(modulesDir, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => entry.name)
+    .filter(name => name === SHERPA_PACKAGE || name.startsWith('sherpa-onnx-'))
+}
+
+function dirSize(dir: string): number {
+  let total = 0
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isSymbolicLink()) continue
+    total += entry.isDirectory() ? dirSize(full) : statSync(full).size
+  }
+  return total
+}
+
+function installedSherpaVersion(pkgDir: string): string | null {
+  try {
+    const parsed = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8')) as { version?: unknown }
+    return typeof parsed.version === 'string' ? parsed.version : null
+  } catch {
+    return null
+  }
+}
+
+interface VerifyResult {
+  ok: boolean
+  detail: string
+}
+
+/**
+ * Load the installed addon exactly the way the daemon does (`require` of
+ * sherpa-onnx.js) but in a child process: a native ABI mismatch or a missing
+ * platform binary aborts the process, and that must not abort the installer.
+ * The child's stderr is carried into the failure message.
+ */
+function verifySherpa(pkgDir: string): VerifyResult {
+  const entry = join(pkgDir, 'sherpa-onnx.js')
+  if (!existsSync(entry)) return { ok: false, detail: `missing ${entry}` }
+  const script = [
+    `const m = require(${JSON.stringify(entry)})`,
+    `const kind = typeof m.OfflineRecognizer`,
+    `if (kind !== 'function') { console.error('OfflineRecognizer is ' + kind); process.exit(1) }`,
+    `console.log('OfflineRecognizer=' + kind)`
+  ].join('; ')
+  const child = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 120_000 })
+  if (child.error) return { ok: false, detail: child.error.message }
+  if (child.status !== 0) {
+    const stderr = `${child.stderr || ''}`.trim()
+    const stdout = `${child.stdout || ''}`.trim()
+    return { ok: false, detail: stderr || stdout || `node -e exited ${child.status}` }
+  }
+  return { ok: true, detail: `${child.stdout || ''}`.trim() }
+}
+
+/**
+ * Install <sherpa-dir>/node_modules/sherpa-onnx-node at the pinned version.
+ *
+ * npm runs against a temp prefix (never this repo, never the target directly) so
+ * a half-finished install cannot leave a package.json or a broken tree behind;
+ * the two or three package directories are then copied into place. Re-running is
+ * cheap: a version match plus a successful load means 'already installed'.
+ */
+async function installSherpa(opts: Options): Promise<void> {
+  const modulesDir = join(opts.sherpaDir, 'node_modules')
+  const pkgDir = join(modulesDir, SHERPA_PACKAGE)
+
+  logSherpa(`target ${pkgDir}`)
+  if (!opts.force) {
+    const have = installedSherpaVersion(pkgDir)
+    if (have === SHERPA_VERSION) {
+      const check = verifySherpa(pkgDir)
+      if (check.ok) {
+        logSherpa(`already installed sherpa-onnx-node@${SHERPA_VERSION} (${check.detail}); use --force to reinstall`)
+        return
+      }
+      logCaptured('sherpa', `sherpa-onnx-node@${have} is present but does not load; reinstalling\n${check.detail}`)
+    } else if (have) {
+      logSherpa(`found sherpa-onnx-node@${have}, pinned version is ${SHERPA_VERSION}; reinstalling`)
+    }
+  }
+
+  const tmp = mkdtempSync(join(tmpdir(), 'baton-sherpa-'))
+  try {
+    const spec = `${SHERPA_PACKAGE}@${SHERPA_VERSION}`
+    logSherpa(`npm install ${spec} into a temp prefix`)
+    const npm = spawnSync('npm', ['install', '--prefix', tmp, '--no-save', '--no-audit', '--no-fund', spec], {
+      encoding: 'utf8',
+      timeout: 10 * 60_000,
+      env: process.env
+    })
+    if (npm.error) throw new Error(`could not run npm (${npm.error.message}); npm must be on PATH`)
+    if (npm.status !== 0) {
+      logCaptured('sherpa', [npm.stdout || '', npm.stderr || ''].join('\n').trim())
+      throw new Error(`npm install ${spec} failed (exit ${npm.status}); see the npm output above`)
+    }
+
+    const tmpModules = join(tmp, 'node_modules')
+    const names = listSherpaPackages(tmpModules)
+    if (!names.includes(SHERPA_PACKAGE)) {
+      throw new Error(`npm install ${spec} produced no ${SHERPA_PACKAGE} under ${tmpModules}`)
+    }
+    mkdirSync(modulesDir, { recursive: true })
+    for (const name of names.sort()) {
+      const dest = join(modulesDir, name)
+      rmSync(dest, { recursive: true, force: true })
+      cpSync(join(tmpModules, name), dest, { recursive: true, dereference: true })
+      logSherpa(`copied ${name} (${human(dirSize(dest))})`)
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+
+  const check = verifySherpa(pkgDir)
+  if (!check.ok) throw new Error(`sherpa-onnx-node@${SHERPA_VERSION} installed but does not load: ${check.detail}`)
+  logSherpa(`verified: node -e require('${join(pkgDir, 'sherpa-onnx.js')}') -> ${check.detail}`)
+  logSherpa(`installed sherpa-onnx-node@${SHERPA_VERSION} in ${modulesDir} (${human(dirSize(modulesDir))})`)
+}
+
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+
+/** Download/import the model set; returns the number of failures. */
+async function fetchModels(opts: Options): Promise<number> {
+  logModels(`target directory: ${opts.dir}`)
+  if (opts.from) {
+    await importFrom(opts.from, opts)
+    return 0
+  }
+
+  const wanted: ModelFile[] = opts.fp32 ? [...FILES, FP32] : FILES
+  let failed = 0
+  for (const file of wanted) {
+    const dest = join(opts.dir, file.name)
+    const label = basename(file.name)
+    const url = opts.urls[label] || file.url
+    const present = existsSync(dest) ? statSync(dest).size : -1
+    if (!opts.force && present === file.size) {
+      const digest = await sha256File(dest)
+      if (!file.sha256 || digest === file.sha256) {
+        logModels(`✓ ${label} ready (${human(present)}, sha256=${digest})`)
+        continue
+      }
+      logModels(`… ${label} size matches but sha256 differs, re-downloading`)
+    } else if (!opts.force && present >= 0) {
+      logModels(`… ${label} has ${human(present)}, expected ${human(file.size)}, re-downloading`)
+    }
+    logModels(`↓ ${label}  ← ${url}`)
+    try {
+      const digest = await downloadOne(url, dest, { ...file, label, force: opts.force })
+      logModels(`✓ ${label}  ${human(statSync(dest).size)}  sha256=${digest}`)
+    } catch (error) {
+      failed += 1
+      console.error(`[models] ✗ ${label}: ${messageOf(error)}`)
+      console.error(`[models]   Try another mirror with --url ${label}=<url>, or import offline with --from <local model dir>.`)
+    }
+  }
+  return failed
+}
 
 async function main(): Promise<number> {
   let opts: Options
@@ -397,46 +637,30 @@ async function main(): Promise<number> {
     return 0
   }
 
-  console.log(`target directory: ${opts.dir}`)
-  if (opts.from) {
-    await importFrom(opts.from, opts)
-    console.log('\ndone. Point modelDir / vadModel at the two directories above (see the end of --help).')
-    return 0
+  let failed = 0
+  if (!opts.sherpaOnly) {
+    failed += await fetchModels(opts)
   }
 
-  const wanted: ModelFile[] = opts.fp32 ? [...FILES, FP32] : FILES
-  let failed = 0
-  for (const file of wanted) {
-    const dest = join(opts.dir, file.name)
-    const label = basename(file.name)
-    const url = opts.urls[label] || file.url
-    const present = existsSync(dest) ? statSync(dest).size : -1
-    if (!opts.force && present === file.size) {
-      const digest = await sha256File(dest)
-      if (!file.sha256 || digest === file.sha256) {
-        console.log(`✓ ${label} ready (${human(present)}, sha256=${digest})`)
-        continue
-      }
-      console.log(`… ${label} size matches but sha256 differs, re-downloading`)
-    } else if (!opts.force && present >= 0) {
-      console.log(`… ${label} has ${human(present)}, expected ${human(file.size)}, re-downloading`)
-    }
-    console.log(`↓ ${label}  ← ${url}`)
+  const wantsEngine = opts.withSherpa || opts.sherpaOnly
+  if (wantsEngine) {
     try {
-      const digest = await downloadOne(url, dest, { ...file, label, force: opts.force })
-      console.log(`✓ ${label}  ${human(statSync(dest).size)}  sha256=${digest}`)
+      await installSherpa(opts)
     } catch (error) {
       failed += 1
-      console.error(`✗ ${label}: ${messageOf(error)}`)
-      console.error(`  Try another mirror with --url ${label}=<url>, or import offline with --from <local model dir>.`)
+      logCaptured('sherpa', `✗ ${messageOf(error)}`, true)
     }
   }
 
-  console.log(
-    failed === 0
-      ? `\ndone. Models are in ${opts.dir}\nPoint modelDir / vadModel there (see the end of --help), or switch to an external STT service.`
-      : `\n${failed} file(s) failed. See the errors and alternatives above.`
-  )
+  if (failed === 0) {
+    const lines: string[] = []
+    if (!opts.sherpaOnly) lines.push(`Models are in ${opts.dir}`)
+    if (wantsEngine) lines.push(`Native engine is in ${join(opts.sherpaDir, 'node_modules')}`)
+    if (!opts.sherpaOnly) lines.push('Nothing to configure: the daemon already defaults to these paths.')
+    console.log(`\ndone. ${lines.join('\n')}`)
+  } else {
+    console.log(`\n${failed} step(s) failed. See the errors and alternatives above.`)
+  }
   return failed === 0 ? 0 : 1
 }
 

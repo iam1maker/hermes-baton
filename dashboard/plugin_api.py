@@ -11,6 +11,8 @@ daemon lifecycle lives (start on demand, self-heal, structured errors).
   /config    read / patch / reset the persisted settings
   /history   recent dictations (opt-in), DELETE clears
   /selftest  transcribe the bundled sample (no remote needed)
+  /stt       speech-recognition status: models, engine, external service, job
+  /stt/install  GET the install job record, POST to start one
   /logs      the daemon's last log lines
 """
 
@@ -177,6 +179,35 @@ def clear_history() -> dict[str, Any]:
 def selftest() -> dict[str, Any]:
     try:
         return _runtime().selftest()
+    except RuntimeError as error:
+        raise _fail(error) from None
+
+
+@router.get("/stt")
+def stt() -> dict[str, Any]:
+    """Speech-recognition status: local models, native engine, external service, install job."""
+    try:
+        return _runtime().stt()
+    except RuntimeError as error:
+        raise _fail(error) from None
+
+
+@router.post("/stt/install")
+def install_stt(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+    """Start the background install job (models and/or the sherpa engine); poll GET /stt/install."""
+    what = str(payload.get("what") or "all")
+    fp32 = bool(payload.get("fp32", False))
+    try:
+        return _runtime().install_stt(what, fp32)
+    except RuntimeError as error:
+        raise _fail(error) from None
+
+
+@router.get("/stt/install")
+def stt_install() -> dict[str, Any]:
+    """The current or most recent install job (job is null until one runs)."""
+    try:
+        return _runtime().stt_install_job()
     except RuntimeError as error:
         raise _fail(error) from None
 
