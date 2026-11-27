@@ -7,14 +7,19 @@ name: ci
 on:
   push:
     branches: [main]
-  pull_request:
-    # `labeled` is the only pull_request event this workflow listens to, and the job below
-    # requires the `run-ci` label. Any other pull_request event (notably `synchronize`) would
-    # create a job whose `if` is false, and a skipped job reports a *skipped* required check,
-    # which branch protection counts as satisfied -- one push would then bypass CI completely.
-    # (Measured on a throwaway pull request: a single push with no label turned it CLEAN.)
-    # Listening to no event at all leaves the check at `Expected` and keeps the merge button
-    # disabled, which is the behaviour we want.
+  # `pull_request_target`, not `pull_request`: with `pull_request` GitHub reads the workflow
+  # definition from the *head* branch, so an outside contributor could delete the gate below in
+  # their own branch and start CI without the owner. Measured: a throwaway pull request whose
+  # head stripped the gate ran `build-and-test` to green with no label (pull request #9).
+  # `pull_request_target` always reads this file from the default branch, so the pull request
+  # being gated cannot change the condition that gates it.
+  #
+  # Only `labeled` is wired, and the job requires the `run-ci` label -- labels need triage or
+  # write access, and the only collaborator here is the owner. Any other pull_request_target
+  # event would create a job whose `if` is false, and a skipped job reports a *skipped*
+  # required check, which branch protection counts as satisfied (also measured: one push made
+  # an unlabelled pull request `clean`).
+  pull_request_target:
     types: [labeled]
   workflow_dispatch:
 
@@ -24,24 +29,33 @@ permissions:
 concurrency:
   # One run per ref: a new push cancels the previous run instead of queueing behind it.
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 jobs:
   build-and-test:
-    # `main` and a manual dispatch always run. A pull request runs only after a maintainer
-    # decides it is worth a runner: `gh pr edit <n> --add-label run-ci`. A push that lands after
-    # the label needs the label removed and re-added to run again -- a `workflow_dispatch` run
-    # reports its check on the commit but does not satisfy the pull request's merge gate
-    # (measured: `mergeable_state` stayed `blocked` after a successful dispatch).
+    # `main` and a manual dispatch always run. A pull request runs only once the owner adds the
+    # `run-ci` label: `gh pr edit <n> --add-label run-ci`. A push that lands after the label needs
+    # the label removed and re-added to run again -- a `workflow_dispatch` run reports its check
+    # on the commit but does not satisfy the pull request's merge gate (measured: `mergeable_state`
+    # stayed `blocked` after a successful dispatch).
     if: >-
-      github.event_name != 'pull_request' ||
+      github.event_name != 'pull_request_target' ||
       contains(github.event.pull_request.labels.*.name, 'run-ci')
+    # `pull_request_target` runs the base branch's workflow but must test the pull request's
+    # tree, so it executes untrusted code by design. That is contained: no secrets are
+    # referenced anywhere in this file and the token is read-only, so the worst case is arbitrary
+    # code on a throwaway runner -- and only after the owner asked for it.
+    permissions:
+      contents: read
     # Linux runner: nothing here needs macOS (the Swift bridge is not built in CI),
     # and esbuild 0.28.2 output is byte-identical across platforms, which is what
     # the dirty-tree check below relies on.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # `pull_request_target` checks out the base branch unless told otherwise.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
