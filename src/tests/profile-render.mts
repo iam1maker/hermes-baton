@@ -456,8 +456,8 @@ function check(name: string, ok: boolean, detail?: unknown) {
     'stt.engine', 'stt.engineInstalled', 'stt.engineMissing', 'stt.installEngine', 'stt.model', 'stt.modelMissing',
     'stt.vad', 'stt.vadPresent', 'stt.vadMissing', 'stt.language', 'stt.download', 'stt.downloadFp32',
     'stt.jobRunning', 'stt.jobOk', 'stt.jobFailed', 'stt.installFailed', 'stt.external', 'stt.externalHint',
-    'stt.baseUrl', 'stt.baseUrlPlaceholder', 'stt.modelField', 'stt.modelPlaceholder', 'stt.apiKey', 'stt.apiKeySet',
-    'stt.apiKeyPlaceholder', 'stt.save', 'stt.saved'
+    'stt.baseUrl', 'stt.baseUrlPlaceholder', 'stt.modelField', 'stt.modelPlaceholder', 'stt.apiKey', 'stt.keyFromStore', 'stt.keyMissing', 'stt.keyLegacy',
+    'stt.save', 'stt.saved'
   ]
   const leaf = (tree: unknown, dotted: string): unknown =>
     dotted.split('.').reduce((acc: unknown, k) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[k] : undefined), tree)

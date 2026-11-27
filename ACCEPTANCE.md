@@ -664,6 +664,13 @@ The README now states the `PYTHONPATH` incantation, because running these two sc
 gateway's own interpreter still fails on `ModuleNotFoundError: No module named 'ruamel'`
 until the venv's `site-packages` is on the path.
 
+**Superseded (2026-11-27, later the same day):** all three scripts were removed from the
+published tree. Attaching to the gateway means importing
+`hermes_cli.gateway_client._session_ticket` and `hermes_cli.gateway_runtime_attach.attach_gateway`,
+which `hermes plugins validate` reports as a catalog rule 9 warning; a listed plugin may not hold
+private core seams. The measurements above stand as a record of what they proved on this machine,
+not as a claim that the files still ship.
+
 ## CI gate: a pull request runs on a label, not on open (2026-11-27, measured)
 
 Each row below is a real reading from throwaway pull requests #5 and #7, opened, exercised and
@@ -711,3 +718,51 @@ So the gate is enforced in two places, and both are needed:
 
 The remaining case is a same-repository branch, which only a collaborator with write access can
 create; `GET /collaborators` returns exactly one entry (`iam1maker`, admin).
+
+## The three catalog gaps, closed (2026-11-27, measured)
+
+`hermes plugins validate .` reported 16 passing checks and two warnings before this pass
+(private core imports in `scripts/probe-routes.py:24-25` and `scripts/verify-gateway.py:23-24`;
+desktop surface reaching `window.hermesDesktop` at `desktop/plugin.js:896`). It now reports
+`ok: true, 16 checks, 0 failed, warnings: []`.
+
+**Rule 8 -- no raw desktop bridge.** `src/desktop/plugin.tsx` opens System Settings through
+`CTX.os.openExternal(...)` (the SDK's `PluginOs` door) instead of `window.hermesDesktop`.
+Rebuilt bundle `desktop/plugin.js` (127.9 KiB, sha256 `8a7ec27281f7`): 0 occurrences of
+`hermesDesktop`, 2 of `CTX.os`.
+
+**Rule 9 -- no private core seams.** `scripts/probe-routes.py`, `scripts/verify-gateway.py` and
+`scripts/restart-and-verify.sh` were removed from the published tree (`git rm`); copies stay in
+the author's skill directory. Note for anyone tempted to just move them: the validator skips
+`tests/`, `node_modules/`, the venv names and every dot-directory, so `dev/` would not have
+helped -- removal is the only clean answer. `docs/DEVELOPMENT.md` records why.
+
+**Rule 11 -- credentials belong to Hermes.** `plugin.yaml` now declares
+`requires_env: BATON_STT_API_KEY` with `password: true`; `runtime.py::_secrets()` reads it through
+`agent.secret_scope.get_secret_str` and injects it into the daemon's environment at spawn;
+`src/sidecar/server.mts` resolves the key as `BATON_STT_API_KEY` -> legacy `settings.json` value,
+reports which one through `/stt.external.keySource`, and `pickSaved()` drops the key entirely, so
+no plaintext secret can be written by the plugin again. The page's key field is gone: it shows
+where the key came from (`keyFromStore` / `keyLegacy` / `keyMissing`).
+
+- `POST /config {"sttApiKey": "<probe>"}` -> `GET /config` returns `••••••`; `settings.json` holds
+  0 entries named `sttApiKey`; `/stt.external` = `{hasKey: true, keySource: "settings"}`.
+- A second daemon started with `BATON_STT_API_KEY` in its environment (port 8899, throwaway state
+  directory) reports `keySource: "env"` and writes no key to disk.
+- `python3 -c "import runtime; print(runtime._secrets())"` outside Hermes -> `{}` (the guarded
+  import falls back to the process environment).
+
+**Rule 17 -- fetched payloads are verifiable.** `scripts/fetch-models.mts` no longer trusts a
+version pin: it `npm pack`s `sherpa-onnx-node@1.13.8` plus the platform build, checks each tarball
+against `SHERPA_SHA256`, and installs only the verified files.
+
+- Real run into a fresh directory: `verified sherpa-onnx-node-1.13.8.tgz sha256=db2a7b8b18d950b6...`,
+  `verified sherpa-onnx-darwin-arm64-1.13.8.tgz sha256=e1abc1d967647899...`, then
+  `node -e require(...)` -> `OfflineRecognizer=function`, 32.6 MiB installed.
+- Negative run with one digest zeroed: `sha256 mismatch`, `Refusing to install an unverified
+  engine`, exit code 1 -- which is what the page's install job keys on.
+- The first attempt asked for `sherpa-onnx-node-darwin-arm64` and npm answered E404: the platform
+  packages drop the `-node` (`sherpa-onnx-darwin-arm64`). Caught by running it, not by reading it.
+
+`node dev/typecheck.mjs` clean (24 files), `node dev/build.mjs` ok (19 modules), `bash tests/run.sh`
+5/5 suites / 26 render checks / EXIT 0.

@@ -120,6 +120,27 @@ def _looks_like_ours(pid: int) -> bool:
     return "baton/sidecar/server.mjs" in out or "remote-mic/sidecar/server.mjs" in out or "sidecar/server.mjs" in out
 
 
+def _secrets() -> dict[str, str]:
+    """Credentials this plugin needs, read through Hermes' profile scope (catalog rule 11).
+
+    The key never lives in the plugin's own settings file: the daemon takes it from the
+    environment Hermes builds for the profile, so a routed profile cannot read another
+    profile's key. ``get_secret_str`` stays fail-closed, hence the narrow guard.
+    """
+    names = ("BATON_STT_API_KEY",)
+    out: dict[str, str] = {}
+    for name in names:
+        value = ""
+        try:
+            from agent.secret_scope import get_secret_str
+            value = get_secret_str(name, "")
+        except Exception:  # no Hermes runtime, or a spawn-site scope bug: fall back to the env
+            value = os.environ.get(name, "")
+        if value:
+            out[name] = value
+    return out
+
+
 def _spawn() -> subprocess.Popen:
     node = _node_binary()
     if node is None:
@@ -132,6 +153,7 @@ def _spawn() -> subprocess.Popen:
     env["REMOTE_MIC_STATE_DIR"] = str(STATE_DIR)
     env["REMOTE_MIC_PORT"] = str(PORT)
     env["REMOTE_MIC_PARENT_PID"] = str(os.getpid())
+    env.update(_secrets())
     # The daemon is a child of the gateway: die with it, never outlive a restart.
     process = subprocess.Popen(  # noqa: S603 — fixed argv, no shell
         [node, str(SERVER_JS)],

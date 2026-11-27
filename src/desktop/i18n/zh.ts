@@ -256,8 +256,9 @@ export const zh: Messages = {
     modelField: '模型',
     modelPlaceholder: 'whisper-1',
     apiKey: 'API 密钥',
-    apiKeySet: '********（已保存；留空则不修改）',
-    apiKeyPlaceholder: 'sk-...',
+    keyFromStore: '密钥由 Hermes 凭证存储提供（BATON_STT_API_KEY）',
+    keyMissing: '未配置密钥；要连外部服务，请在 Hermes 设置里保存 BATON_STT_API_KEY',
+    keyLegacy: '仍是旧版明文键；请改存 BATON_STT_API_KEY，之后重载守护进程',
     save: '保存',
     saved: '语音服务设置已保存'
   },

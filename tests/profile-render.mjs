@@ -366,8 +366,9 @@ function check(name, ok, detail) {
     "stt.modelField",
     "stt.modelPlaceholder",
     "stt.apiKey",
-    "stt.apiKeySet",
-    "stt.apiKeyPlaceholder",
+    "stt.keyFromStore",
+    "stt.keyMissing",
+    "stt.keyLegacy",
     "stt.save",
     "stt.saved"
   ];

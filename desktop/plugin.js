@@ -250,8 +250,9 @@ var en = {
     modelField: "Model",
     modelPlaceholder: "whisper-1",
     apiKey: "API key",
-    apiKeySet: "******** (saved; leave blank to keep)",
-    apiKeyPlaceholder: "sk-...",
+    keyFromStore: "Key comes from the Hermes credential store (BATON_STT_API_KEY)",
+    keyMissing: "No key configured; save BATON_STT_API_KEY in Hermes settings to use an external service",
+    keyLegacy: "Still a legacy plaintext key; move it to BATON_STT_API_KEY and reload the daemon",
     save: "Save",
     saved: "Speech service settings saved"
   },
@@ -551,8 +552,9 @@ var zh = {
     modelField: "\u6A21\u578B",
     modelPlaceholder: "whisper-1",
     apiKey: "API \u5BC6\u94A5",
-    apiKeySet: "********\uFF08\u5DF2\u4FDD\u5B58\uFF1B\u7559\u7A7A\u5219\u4E0D\u4FEE\u6539\uFF09",
-    apiKeyPlaceholder: "sk-...",
+    keyFromStore: "\u5BC6\u94A5\u7531 Hermes \u51ED\u8BC1\u5B58\u50A8\u63D0\u4F9B\uFF08BATON_STT_API_KEY\uFF09",
+    keyMissing: "\u672A\u914D\u7F6E\u5BC6\u94A5\uFF1B\u8981\u8FDE\u5916\u90E8\u670D\u52A1\uFF0C\u8BF7\u5728 Hermes \u8BBE\u7F6E\u91CC\u4FDD\u5B58 BATON_STT_API_KEY",
+    keyLegacy: "\u4ECD\u662F\u65E7\u7248\u660E\u6587\u952E\uFF1B\u8BF7\u6539\u5B58 BATON_STT_API_KEY\uFF0C\u4E4B\u540E\u91CD\u8F7D\u5B88\u62A4\u8FDB\u7A0B",
     save: "\u4FDD\u5B58",
     saved: "\u8BED\u97F3\u670D\u52A1\u8BBE\u7F6E\u5DF2\u4FDD\u5B58"
   },
@@ -893,10 +895,8 @@ function petLine(text) {
 }
 async function openSystemSettingsApp() {
   try {
-    const bridge = typeof window !== "undefined" ? window.hermesDesktop : void 0;
-    if (!bridge || typeof bridge.openExternal !== "function") return false;
-    await bridge.openExternal("file:///System/Applications/System%20Settings.app");
-    return true;
+    if (!CTX || !CTX.os || typeof CTX.os.openExternal !== "function") return false;
+    return await CTX.os.openExternal("file:///System/Applications/System%20Settings.app");
   } catch {
     return false;
   }
@@ -1886,17 +1886,14 @@ function SttCard() {
   const values = s.snap && s.snap.config || {};
   const [baseUrl, setBaseUrl] = useState(String(values.sttBaseUrl || ""));
   const [sttModel, setSttModel] = useState(String(values.sttModel || ""));
-  const [apiKey, setApiKey] = useState("");
   useEffect(() => setBaseUrl(String(values.sttBaseUrl || "")), [values.sttBaseUrl]);
   useEffect(() => setSttModel(String(values.sttModel || "")), [values.sttModel]);
   const lines = Array.isArray(job.lines) ? job.lines.slice(-6) : [];
   const percent = Math.max(0, Math.min(100, Number(job.percent) || 0));
   const saveExternal = async () => {
     const patch = { sttBaseUrl: baseUrl.trim(), sttModel: sttModel.trim() };
-    if (apiKey.trim()) patch.sttApiKey = apiKey.trim();
     const ok = await patchConfig(patch);
     if (ok) {
-      setApiKey("");
       toast(L.stt.saved, "info");
       refreshState();
     }
@@ -2005,13 +2002,15 @@ function SttCard() {
           /* @__PURE__ */ jsx(Field, { ...{ key: "url" }, label: L.stt.baseUrl, children: /* @__PURE__ */ jsx(TextInput, { value: baseUrl, placeholder: L.stt.baseUrlPlaceholder, width: 220, onChange: setBaseUrl }) }),
           /* @__PURE__ */ jsx(Field, { ...{ key: "mdl" }, label: L.stt.modelField, children: /* @__PURE__ */ jsx(TextInput, { value: sttModel, placeholder: L.stt.modelPlaceholder, width: 160, onChange: setSttModel }) }),
           /* @__PURE__ */ jsx(Field, { ...{ key: "key" }, label: L.stt.apiKey, children: /* @__PURE__ */ jsx(
-            TextInput,
+            "span",
             {
-              type: "password",
-              value: apiKey,
-              placeholder: external.hasKey ? L.stt.apiKeySet : L.stt.apiKeyPlaceholder,
-              width: 220,
-              onChange: setApiKey
+              style: {
+                fontSize: FS.tiny,
+                color: external.keySource === "settings" ? C.orange : external.hasKey ? C.fg3 : C.fg4,
+                maxWidth: 320,
+                lineHeight: 1.45
+              },
+              children: external.keySource === "settings" ? L.stt.keyLegacy : external.hasKey ? L.stt.keyFromStore : L.stt.keyMissing
             }
           ) }),
           /* @__PURE__ */ jsxs("div", { ...{ key: "save" }, style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }, children: [
