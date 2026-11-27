@@ -257,8 +257,9 @@ export const en: Messages = {
     modelField: 'Model',
     modelPlaceholder: 'whisper-1',
     apiKey: 'API key',
-    apiKeySet: '******** (saved; leave blank to keep)',
-    apiKeyPlaceholder: 'sk-...',
+    keyFromStore: 'Key comes from the Hermes credential store (BATON_STT_API_KEY)',
+    keyMissing: 'No key configured; save BATON_STT_API_KEY in Hermes settings to use an external service',
+    keyLegacy: 'Still a legacy plaintext key; move it to BATON_STT_API_KEY and reload the daemon',
     save: 'Save',
     saved: 'Speech service settings saved'
   },

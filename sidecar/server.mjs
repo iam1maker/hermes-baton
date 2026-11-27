@@ -102,6 +102,8 @@ function argsFrom(argv2) {
 }
 const argv = argsFrom(process.argv.slice(2));
 const envAny = (key) => process.env[`BATON_${key}`] || process.env[`REMOTE_MIC_${key}`];
+const serviceKey = (current) => envAny("STT_API_KEY") || current.sttApiKey || "";
+const serviceKeySource = (current) => envAny("STT_API_KEY") ? "env" : current.sttApiKey ? "settings" : null;
 const PORT = Number(envAny("PORT") || argv.port || 8791);
 const STATE_DIR = resolvePath(
   envAny("STATE_DIR") || argv.stateDir || join(HOME, ".hermes", "baton")
@@ -269,6 +271,7 @@ function pushEvent(type, payload) {
 let lastDetail = null;
 function openAiTranscriber(config2) {
   const baseUrl = config2.sttBaseUrl.replace(/\/+$/, "");
+  const key = serviceKey(config2);
   const url = baseUrl.includes("/audio/transcriptions") ? baseUrl : `${baseUrl}/audio/transcriptions`;
   return async (wav, signal) => {
     const form = new FormData();
@@ -277,7 +280,7 @@ function openAiTranscriber(config2) {
     if (config2.language) form.append("language", config2.language);
     const response = await fetch(url, {
       method: "POST",
-      headers: config2.sttApiKey ? { authorization: `Bearer ${config2.sttApiKey}` } : void 0,
+      headers: key ? { authorization: `Bearer ${key}` } : void 0,
       body: form,
       signal
     });
@@ -584,7 +587,8 @@ function sttReport() {
     external: {
       baseUrl: config.sttBaseUrl || null,
       model: config.sttBaseUrl ? config.sttModel : null,
-      hasKey: Boolean(config.sttApiKey)
+      hasKey: Boolean(serviceKey(config)),
+      keySource: serviceKeySource(config)
     },
     job: installJob,
     lastError: lastSttError
@@ -668,7 +672,7 @@ function editable(current) {
     hidKeys: current.hidKeys,
     sttBaseUrl: current.sttBaseUrl,
     sttModel: current.sttModel,
-    sttApiKey: current.sttApiKey ? "\u2022\u2022\u2022\u2022\u2022\u2022" : "",
+    sttApiKey: serviceKey(current) ? "\u2022\u2022\u2022\u2022\u2022\u2022" : "",
     deviceId: current.deviceId,
     deviceName: current.deviceName,
     keyFilter: current.keyFilter,
@@ -693,6 +697,11 @@ function applyPatch(patch) {
   writeJsonAtomic(SETTINGS_FILE, { version: 1, values: saved });
   const previousDevice = `${config.deviceId}\0${config.deviceName}`;
   config = normalized;
+  const inlineKey = typeof patch.sttApiKey === "string" ? String(patch.sttApiKey).trim() : "";
+  if (inlineKey) {
+    config.sttApiKey = inlineKey;
+    log("STT key applied for this run only; store it as BATON_STT_API_KEY to survive a restart");
+  }
   if (["modelDir", "vadModel", "modelFile", "precision"].some((key) => key in patch)) {
     local.dispose();
     local = buildLocal();
@@ -711,7 +720,7 @@ function applyPatch(patch) {
 function pickSaved(patch) {
   const out = {};
   for (const [key, value] of Object.entries(patch)) {
-    if (key === "sttApiKey" && value === "\u2022\u2022\u2022\u2022\u2022\u2022") continue;
+    if (key === "sttApiKey") continue;
     if (key === "keyMap") out.keyMap = normalizeKeyMap(value);
     else if (key === "phrases") out.phrases = normalizePhrases(value);
     else out[key] = value;

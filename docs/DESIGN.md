@@ -96,7 +96,7 @@ Xiaomi's Back".
 
 | Dependency | Strategy |
 |---|---|
-| speech models (SenseVoice int8 ~250 MB / fp32 ~900 MB, Silero VAD) | never in git. Three routes: (1) `scripts/fetch-models.mjs` (Range resume, sha256, `--from` for offline import); (2) a local path set through the page/API; (3) an external OpenAI-compatible STT service (`sttBaseUrl`/`sttModel`/`sttApiKey`), no local model at all |
+| speech models (SenseVoice int8 ~250 MB / fp32 ~900 MB, Silero VAD) | never in git. Three routes: (1) `scripts/fetch-models.mjs` (Range resume, sha256, `--from` for offline import); (2) a local path set through the page/API; (3) an external OpenAI-compatible STT service (`sttBaseUrl`/`sttModel`, with the bearer token read from the `BATON_STT_API_KEY` credential), no local model at all |
 | `sherpa-onnx-node` (native `.node`) | an npm dependency of the sidecar, installed per platform; resolution `BATON_SHERPA` -> `sidecar/node_modules` -> host paths |
 | Node runtime | the host's node (`~/.hermes/tools/node-*`), not bundled |
 | Bluetooth bridge binary | a compiled universal binary in the repo, sources in the same repo (`build.sh` rebuilds it) |

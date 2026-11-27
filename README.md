@@ -119,7 +119,8 @@ on both remotes.
 - **Audio never leaves the machine by default.** Transcription is in-process on
   the CPU. Setting an external STT endpoint POSTs each utterance's WAV there with
   your key as a bearer header -- that is what the option is for, and it is off by
-  default.
+  default. The key is a Hermes credential (`BATON_STT_API_KEY`), read through the
+  profile secret scope; the plugin never writes it to its own settings file.
 - **Nothing else is uploaded.** No telemetry, no updater, no other outbound call.
   Apart from a configured STT endpoint, the process talks to nothing but the local
   bridge over stdio and to loopback.

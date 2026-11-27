@@ -299,6 +299,8 @@ interface SttExternalInfo {
   baseUrl?: string | null
   model?: string | null
   hasKey?: boolean
+  /** Where the key came from: the Hermes credential store, or a legacy settings.json value. */
+  keySource?: 'env' | 'settings' | null
 }
 
 interface SttJobInfo {
@@ -750,22 +752,15 @@ function petLine(text: string): void {
   }
 }
 
-/** Minimal shape of the desktop bridge (window.hermesDesktop): only openExternal is used. */
-interface DesktopBridge {
-  openExternal?: (url: string) => Promise<unknown>
-}
-
 /** The renderer may only open http/https/file, so file:// launches System Settings.
  *  Panel-level jumps (straight to Bluetooth) go through the backend /open/settings,
- *  because the desktop bridge refuses schemes such as x-apple:. */
+ *  because the OS door refuses schemes such as x-apple:.
+ *  `ctx.os` is the SDK's curated OS namespace; the raw `window.hermesDesktop`
+ *  bridge is app-internal and catalog rule 8 keeps plugins off it. */
 async function openSystemSettingsApp(): Promise<boolean> {
   try {
-    const bridge: DesktopBridge | undefined = typeof window !== 'undefined'
-      ? (window as unknown as { hermesDesktop?: DesktopBridge }).hermesDesktop
-      : undefined
-    if (!bridge || typeof bridge.openExternal !== 'function') return false
-    await bridge.openExternal('file:///System/Applications/System%20Settings.app')
-    return true
+    if (!CTX || !CTX.os || typeof CTX.os.openExternal !== 'function') return false
+    return await CTX.os.openExternal('file:///System/Applications/System%20Settings.app')
   } catch {
     return false
   }
@@ -2087,19 +2082,17 @@ function SttCard() {
   // (same rule as Num); the API key never echoes back — GET /config masks it.
   const [baseUrl, setBaseUrl] = useState(String(values.sttBaseUrl || ''))
   const [sttModel, setSttModel] = useState(String(values.sttModel || ''))
-  const [apiKey, setApiKey] = useState('')
   useEffect(() => setBaseUrl(String(values.sttBaseUrl || '')), [values.sttBaseUrl])
   useEffect(() => setSttModel(String(values.sttModel || '')), [values.sttModel])
   const lines = Array.isArray(job.lines) ? job.lines.slice(-6) : []
   const percent = Math.max(0, Math.min(100, Number(job.percent) || 0))
 
   const saveExternal = async (): Promise<void> => {
+    // Only the non-secret fields are the page's to write: the key belongs to the credential
+    // store (catalog rule 11), so the daemon never persists one that came from here.
     const patch: Partial<EditableConfig> = { sttBaseUrl: baseUrl.trim(), sttModel: sttModel.trim() }
-    // The stored key is masked on read: only send one when the field was filled in.
-    if (apiKey.trim()) patch.sttApiKey = apiKey.trim()
     const ok = await patchConfig(patch)
     if (ok) {
-      setApiKey('')
       toast(L.stt.saved, 'info')
       refreshState()
     }
@@ -2225,13 +2218,20 @@ function SttCard() {
           <TextInput value={sttModel} placeholder={L.stt.modelPlaceholder} width={160} onChange={setSttModel} />
         </Field>
         <Field {...{ key: 'key' }} label={L.stt.apiKey}>
-          <TextInput
-            type="password"
-            value={apiKey}
-            placeholder={external.hasKey ? L.stt.apiKeySet : L.stt.apiKeyPlaceholder}
-            width={220}
-            onChange={setApiKey}
-          />
+          <span
+            style={{
+              fontSize: FS.tiny,
+              color: external.keySource === 'settings' ? C.orange : external.hasKey ? C.fg3 : C.fg4,
+              maxWidth: 320,
+              lineHeight: 1.45
+            }}
+          >
+            {external.keySource === 'settings'
+              ? L.stt.keyLegacy
+              : external.hasKey
+                ? L.stt.keyFromStore
+                : L.stt.keyMissing}
+          </span>
         </Field>
         <div {...{ key: 'save' }} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <Btn disabled={s.busy} onClick={saveExternal}>

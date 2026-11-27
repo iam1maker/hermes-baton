@@ -58,6 +58,16 @@ export interface PluginPet {
   say(text: string, opts?: { ttlMs?: number }): void
 }
 
+/**
+ * The curated OS door (real SDK: `apps/desktop/src/contrib/plugin.ts` → `PluginOs`).
+ * Every member resolves a value instead of throwing when the capability can't apply.
+ */
+export interface PluginOs {
+  openExternal(url: string): Promise<boolean>
+  revealPath(path: string): Promise<boolean>
+  writeClipboard(text: string): Promise<boolean>
+}
+
 export interface PluginContext {
   readonly source: string
   register(c: PluginContribution): () => void
@@ -77,6 +87,8 @@ export interface PluginContext {
   socket(path: string, onMessage: (data: unknown) => void): () => void
   storage: PluginStorage
   pet: PluginPet
+  /** Reach outside the window (open URLs, reveal paths, clipboard). */
+  os: PluginOs
 }
 
 export interface PluginComposerHost {

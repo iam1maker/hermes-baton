@@ -232,6 +232,15 @@ function argsFrom(argv: string[]): CliArgs {
 
 const argv = argsFrom(process.argv.slice(2))
 const envAny = (key: string): string | undefined => process.env[`BATON_${key}`] || process.env[`REMOTE_MIC_${key}`]
+
+/**
+ * The external service key never lives in settings.json: Hermes' credential store owns it
+ * (catalog rule 11). Precedence is the store's env var, then a legacy value written by an
+ * older build -- that value is read, reported through `keySource`, and never written back.
+ */
+const serviceKey = (current: Config): string => envAny('STT_API_KEY') || current.sttApiKey || ''
+const serviceKeySource = (current: Config): 'env' | 'settings' | null =>
+  envAny('STT_API_KEY') ? 'env' : current.sttApiKey ? 'settings' : null
 const PORT = Number(envAny('PORT') || argv.port || 8791)
 const STATE_DIR = resolvePath(
   envAny('STATE_DIR')
@@ -440,6 +449,7 @@ let lastDetail: string | null = null
 
 function openAiTranscriber(config: Config): ServerTranscriber {
   const baseUrl = config.sttBaseUrl.replace(/\/+$/, '')
+  const key = serviceKey(config)
   const url = baseUrl.includes('/audio/transcriptions') ? baseUrl : `${baseUrl}/audio/transcriptions`
   return async (wav, signal) => {
     const form = new FormData()
@@ -450,7 +460,7 @@ function openAiTranscriber(config: Config): ServerTranscriber {
     if (config.language) form.append('language', config.language)
     const response = await fetch(url, {
       method: 'POST',
-      headers: config.sttApiKey ? { authorization: `Bearer ${config.sttApiKey}` } : undefined,
+      headers: key ? { authorization: `Bearer ${key}` } : undefined,
       body: form,
       signal
     })
@@ -866,7 +876,8 @@ function sttReport(): unknown {
     external: {
       baseUrl: config.sttBaseUrl || null,
       model: config.sttBaseUrl ? config.sttModel : null,
-      hasKey: Boolean(config.sttApiKey)
+      hasKey: Boolean(serviceKey(config)),
+      keySource: serviceKeySource(config)
     },
     job: installJob,
     lastError: lastSttError
@@ -967,7 +978,7 @@ function editable(current: Config) {
     hidKeys: current.hidKeys,
     sttBaseUrl: current.sttBaseUrl,
     sttModel: current.sttModel,
-    sttApiKey: current.sttApiKey ? '••••••' : '',
+    sttApiKey: serviceKey(current) ? '••••••' : '',
     deviceId: current.deviceId,
     deviceName: current.deviceName,
     keyFilter: current.keyFilter,
@@ -997,6 +1008,13 @@ function applyPatch(patch: unknown) {
   writeJsonAtomic(SETTINGS_FILE, { version: 1, values: saved })
   const previousDevice = `${config.deviceId}\u0000${config.deviceName}`
   config = normalized
+  const inlineKey = typeof (patch as Record<string, unknown>).sttApiKey === 'string'
+    ? String((patch as Record<string, unknown>).sttApiKey).trim()
+    : ''
+  if (inlineKey) {
+    config.sttApiKey = inlineKey
+    log('STT key applied for this run only; store it as BATON_STT_API_KEY to survive a restart')
+  }
   if (['modelDir', 'vadModel', 'modelFile', 'precision'].some(key => key in patch)) {
     local.dispose()
     local = buildLocal()
@@ -1019,7 +1037,9 @@ function applyPatch(patch: unknown) {
 function pickSaved(patch: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(patch)) {
-    if (key === 'sttApiKey' && value === '••••••') continue
+    // The credential store owns this one: a key typed into the page is memory-only and never
+    // reaches settings.json, so a plaintext secret cannot land on disk (catalog rule 11).
+    if (key === 'sttApiKey') continue
     if (key === 'keyMap') out.keyMap = normalizeKeyMap(value)
     else if (key === 'phrases') out.phrases = normalizePhrases(value)
     else out[key] = value

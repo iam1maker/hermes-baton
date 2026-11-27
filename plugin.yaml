@@ -13,3 +13,12 @@ description: >
 requires_hermes: ">=0.22.5"
 provides_tools:
   - baton
+
+# Secrets come from Hermes' credential store, never from the plugin's own settings file
+# (catalog rule 11). Only an external recognition service needs this one; the local
+# SenseVoice path runs without any credential.
+requires_env:
+  - name: BATON_STT_API_KEY
+    description: "Token for an external OpenAI-compatible transcription service (optional; the local model needs no key)"
+    prompt: "External STT API key (or empty)"
+    password: true

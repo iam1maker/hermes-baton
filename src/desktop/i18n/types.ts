@@ -285,8 +285,10 @@ export interface Messages {
     modelField: string
     modelPlaceholder: string
     apiKey: string
-    apiKeySet: string
-    apiKeyPlaceholder: string
+    /** Status lines for the credential the store owns; there is no key field on the page. */
+    keyFromStore: string
+    keyMissing: string
+    keyLegacy: string
     save: string
     saved: string
   }

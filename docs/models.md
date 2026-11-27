@@ -150,9 +150,13 @@ Runtime's arena does not return memory at once; repeated switches push RSS past
 ## If you would rather not run a model
 
 Set `sttBaseUrl` to an OpenAI-compatible endpoint (it needs
-`/audio/transcriptions`), plus `sttModel` and `sttApiKey`. The daemon then POSTs
-each utterance's WAV there and never loads `sherpa-onnx-node`. This is the only
-configuration in which audio leaves the machine.
+`/audio/transcriptions`), plus `sttModel`. The bearer token is a Hermes
+credential: save it as `BATON_STT_API_KEY` (plugin settings, `hermes config`, or
+the profile `.env`) and the plugin hands it to the daemon at spawn through the
+profile secret scope. A key typed into the page applies to the running daemon
+only and is never written to disk. The daemon then POSTs each utterance's WAV
+there and never loads `sherpa-onnx-node`. This is the only configuration in which
+audio leaves the machine.
 
 ## Licences
 

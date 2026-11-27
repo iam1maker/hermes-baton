@@ -44,23 +44,26 @@ building, because a stub committed inside `node_modules` would be ignored by
 | Script | What it does |
 | --- | --- |
 | `scripts/api-call.py` | authenticated request to the local daemon; prints JSON |
-| `scripts/probe-routes.py` | which routes the running gateway actually mounted |
-| `scripts/verify-gateway.py` | end-to-end check against the gateway |
 | `scripts/switch-device.py` | hot-switch remotes and time it |
 | `scripts/watch-keys.py` | tail key events out of the daemon |
 | `scripts/fetch-models.mjs` | download the models and the native engine |
 | `scripts/cjk-scan.py` | the ASCII gate CI runs |
 
-`api-call.py`, `switch-device.py` and `watch-keys.py` speak to the daemon over
-loopback with the token from the state directory and need only the standard
-library. `probe-routes.py` and `verify-gateway.py` attach to the running gateway,
-so they need an interpreter that can import `hermes_cli` -- run them with the same
-Python Hermes itself runs on, or put that interpreter's `site-packages` on
-`PYTHONPATH` if your `python3` is a different one.
+All of them speak to the daemon over loopback with the token from the state
+directory and need only the standard library, so they run under any `python3`.
 
-Install paths are discovered rather than hardcoded: `HERMES_APP_ROOT` (the
-directory holding `hermes-agent/`), `HERMES_HOME` (the profile whose gateway is
-probed), and `HERMES_REPO` / `BATON_PROBE_HOME` for unusual layouts.
+Install paths are discovered rather than hardcoded: `BATON_STATE_DIR` and
+`BATON_PORT` for an unusual layout, and `HERMES_HOME` for the profile copy.
+
+### Why no gateway-probing script ships here
+
+Checking which `/api/plugins/baton/*` routes the running gateway mounted means
+attaching to the gateway session, which only exists as a private core seam
+(`hermes_cli.gateway_client._session_ticket`). A plugin that imports it earns a
+catalog rule 9 warning, and it can break on any Hermes release. The two scripts
+that did this (`probe-routes.py`, `verify-gateway.py`) were therefore removed
+from the published tree; the behaviour they check is covered by opening the
+plugin page after a gateway reload, which is what they were standing in for.
 
 ## Voice pipeline
 
