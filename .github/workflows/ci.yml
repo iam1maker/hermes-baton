@@ -8,15 +8,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    # `labeled` is the only pull_request event this workflow listens to, and the job below
-    # requires the `run-ci` label. Any other pull_request event (notably `synchronize`) would
-    # create a job whose `if` is false, and a skipped job reports a *skipped* required check,
-    # which branch protection counts as satisfied -- one push would then bypass CI completely.
-    # (Measured on a throwaway pull request: a single push with no label turned it CLEAN.)
-    # Listening to no event at all leaves the check at `Expected` and keeps the merge button
-    # disabled, which is the behaviour we want.
-    types: [labeled]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -33,9 +24,6 @@ jobs:
     # the label needs the label removed and re-added to run again -- a `workflow_dispatch` run
     # reports its check on the commit but does not satisfy the pull request's merge gate
     # (measured: `mergeable_state` stayed `blocked` after a successful dispatch).
-    if: >-
-      github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'run-ci')
     # Linux runner: nothing here needs macOS (the Swift bridge is not built in CI),
     # and esbuild 0.28.2 output is byte-identical across platforms, which is what
     # the dirty-tree check below relies on.
