@@ -766,3 +766,12 @@ against `SHERPA_SHA256`, and installs only the verified files.
 
 `node dev/typecheck.mjs` clean (24 files), `node dev/build.mjs` ok (19 modules), `bash tests/run.sh`
 5/5 suites / 26 render checks / EXIT 0.
+
+**Follow-up: the fp32 model pin.** `sensevoice-onnx/model.onnx` was the last payload whose digest
+was printed but not enforced (`sha256: null`). It is now pinned to
+`977016bd9c79f9eb343430b5cc305e07ab64d5212dff41b0dcfa1694bee9a8cb` (937,617,178 bytes). Evidence
+rather than a guess: the Hub's own file metadata for that release reports the same LFS digest
+(`HfApi().model_info(..., files_metadata=True)`), and the copy this project has been running
+since 2026-11-15 hashes to it. The int8 and VAD pins were re-checked the same way -- the int8
+digest matches the Hub, and the VAD download (`643,854` bytes from the sherpa-onnx release)
+hashes to the pinned `9e2449e1...`.
