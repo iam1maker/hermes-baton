@@ -4,6 +4,30 @@ The same shape as [iam1maker/hermes-bark](https://github.com/iam1maker/hermes-ba
 -- what you see in this repository's commit list. These are rules, not style
 preferences.
 
+## Branch and pull request flow
+
+`main` is protected for everyone, the owner included:
+
+- no direct pushes (`Changes must be made through a pull request`);
+- the `build-and-test` check from `.github/workflows/ci.yml` must be green;
+- the branch must be up to date with `main` before it merges (`strict`), so the
+  check you saw green is the tree you merge;
+- linear history, squash or rebase merge (merge commits are disabled);
+- no force-push and no branch deletion;
+- the head branch is deleted automatically on merge.
+
+```bash
+git switch -c fix/device-switch-timeout    # feat/..., fix/..., docs/..., chore/...
+# ...edit, then rebuild and test, then commit...
+git push -u origin fix/device-switch-timeout
+gh pr create --fill      # the template asks for the evidence
+gh pr checks --watch     # waits for build-and-test
+gh pr merge --squash --delete-branch
+```
+
+One branch per change, one squashed commit on `main`, and the PR body carries
+the same evidence the commit body would.
+
 ## Shape
 
 ```text
