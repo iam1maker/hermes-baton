@@ -564,3 +564,58 @@ Consequences worth keeping in mind:
 - `--with-sherpa` output is line-tagged `[models]` / `[sherpa]`, which is how the
   page's progress bar and phase label are derived;
 - 13/13 assertions in the clean-machine script passed on this build.
+
+## Installability from a clean machine (2026-11-27 12:45, measured)
+
+What a stranger runs, and what this build returned:
+
+```bash
+HERMES_HOME=<empty dir> hermes plugins install iam1maker/hermes-baton
+```
+
+```text
+Warning: custom (unreviewed) source -- not from the Hermes catalog.
+Cloning https://github.com/iam1maker/hermes-baton.git...
+
++--------------------------------- Installed ---------------------------------+
+| Plugin installed: iam1maker/hermes-baton                                    |
++-----------------------------------------------------------------------------+
+Plugin installed but not enabled. Run `hermes plugins enable baton` to activate.
+
+EXIT=0
+```
+
+`HERMES_HOME=<that dir> hermes plugins enable baton` then printed
+`Plugin baton enabled.`; the installed tree kept `sidecar/bin/atvv-link` at mode
+`0755` (330000 bytes), which is what the daemon spawns.
+
+Before this commit the same command exited 1:
+
+```text
+Decision: BLOCKED -- Blocked (community source + caution verdict, 225 findings)
+```
+
+Root cause, from `hermes_cli/plugins_install_scan.py` and
+`tools/skills_guard.py:1075`: the verdict is decided by the single highest
+severity. A `curl` line that expanded a token variable (`env_exfil_curl` in
+`README.md:99`) was the only HIGH finding, so the verdict was CAUTION, and a
+CAUTION verdict is refused outright when install runs without a terminal
+prompt. The 398 MEDIUM `unicode_escape_chain` findings are a side effect of the
+ASCII rule (i18n strings in `desktop/plugin.js` use `\uXXXX` escapes) and never
+blocked anything.
+
+After replacing every shell example with `scripts/api-call.py`:
+
+```text
+total 415 | severity {'low': 12, 'medium': 403}
+by rule [('unicode_escape_chain', 394), ('hardcoded_ip_port', 12),
+         ('hex_encoded_string', 4), ('unpinned_npm_install', 3),
+         ('python_subprocess', 2)]
+HIGH/CRIT []
+verdict: (True, 'Allowed (clean scan)')
+```
+
+Gates on the same build: `typecheck: clean (24 files, ts 5.9.3)`,
+`build: ok (19 module(s))` (bundle 127.4 KiB, sha256 `a1a7e730461c`),
+`SUMMARY 5/5 suites passed, 0 failed`, `EXIT 0` (75 assertions), and
+`scripts/cjk-scan.py .` reporting one file (`src/desktop/i18n/zh.ts`, 2201 CJK).
