@@ -257,6 +257,9 @@ export interface Messages {
     kindLocal: string
     kindExternal: string
     kindMissing: string
+    /** /stt could not be read at all (route not mounted yet) -- unknown, not "nothing installed". */
+    unavailable: string
+    unavailableHint: string
     ready: string
     attention: string
     /** Status rows. */

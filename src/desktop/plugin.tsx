@@ -408,6 +408,8 @@ let CTX: PluginContext | null = null
 interface Store {
   snap: StateSnapshot | null // /state snapshot
   stt: SttInfo | null // GET /stt snapshot (speech service card)
+  /** Why /stt could not be read (a gateway that has not mounted the route yet). */
+  sttError: string | null
   selftest: TranscriptInfo | null // last /selftest transcript, shown by the link card
   error: string | null // most recent backend error, already stringified
   cursor: number | null // event cursor; null = head not located yet
@@ -420,6 +422,7 @@ interface Store {
 const store: Store = {
   snap: null,
   stt: null,
+  sttError: null,
   selftest: null,
   error: null,
   cursor: null,
@@ -593,10 +596,14 @@ async function refreshStt(): Promise<void> {
       incoming.lines = priorLines.length >= incomingLines.length ? priorLines : incomingLines
     }
     store.stt = info
+    store.sttError = null
     watchSttJob()
     publish()
-  } catch {
-    /* an old backend without /stt leaves the card on its last known state */
+  } catch (error) {
+    // A gateway that has not mounted /stt answers 404. Say that, instead of letting the
+    // card report every resource as missing -- a stale route must not read as "not installed".
+    store.sttError = error instanceof Error ? error.message : String(error)
+    publish()
   }
 }
 
@@ -2073,6 +2080,9 @@ function SttCard() {
   const s = useStore()
   const info: SttInfo = s.stt || {}
   const summary = sttSummary(s.stt)
+  // No snapshot plus a recorded failure means "unknown", not "nothing installed".
+  const unavailable = !s.stt && Boolean(s.sttError)
+  const dash = '\u2014'
   const local: SttLocalInfo = info.local || {}
   const external: SttExternalInfo = info.external || {}
   const job: SttJobInfo = info.job || {}
@@ -2118,15 +2128,19 @@ function SttCard() {
             lineHeight: '16px'
           }}
         >
-          <Dot {...{ key: 'd' }} tone={summary.readyDot} pulse={running} />
-          <span {...{ key: 'k' }}>{summary.kindLabel}</span>
-          <span {...{ key: 'r' }} style={{ color: C.fg4 }}>{info.ready ? L.stt.ready : L.stt.attention}</span>
+          <Dot {...{ key: 'd' }} tone={unavailable ? C.orange : summary.readyDot} pulse={running} />
+          <span {...{ key: 'k' }}>{unavailable ? L.stt.unavailable : summary.kindLabel}</span>
+          <span {...{ key: 'r' }} style={{ color: C.fg4 }}>
+            {unavailable ? '' : info.ready ? L.stt.ready : L.stt.attention}
+          </span>
         </span>
       }
     >
       <Field label={L.stt.engine}>
-        <span style={{ fontSize: FS.small, color: summary.engineMissing ? C.orange : C.fg2 }}>{summary.engineLabel}</span>
-        <Btn ghost disabled={running} onClick={() => installStt('sherpa', false)}>
+        <span style={{ fontSize: FS.small, color: unavailable ? C.fg4 : summary.engineMissing ? C.orange : C.fg2 }}>
+          {unavailable ? dash : summary.engineLabel}
+        </span>
+        <Btn ghost disabled={running || unavailable} onClick={() => installStt('sherpa', false)}>
           {L.stt.installEngine}
         </Btn>
       </Field>
@@ -2134,29 +2148,34 @@ function SttCard() {
         <span
           style={{
             fontSize: FS.small,
-            color: summary.needsInstall ? C.orange : C.fg2,
+            color: unavailable ? C.fg4 : summary.needsInstall ? C.orange : C.fg2,
             maxWidth: 280,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap'
           }}
         >
-          {summary.modelLabel}
+          {unavailable ? dash : summary.modelLabel}
         </span>
       </Field>
       <Field label={L.stt.vad}>
-        <span style={{ fontSize: FS.small, color: local.vad ? C.fg2 : C.orange }}>
-          {local.vad ? fmt(L.stt.vadPresent, { name: pathBasename(local.vad) }) : L.stt.vadMissing}
+        <span style={{ fontSize: FS.small, color: unavailable ? C.fg4 : local.vad ? C.fg2 : C.orange }}>
+          {unavailable ? dash : local.vad ? fmt(L.stt.vadPresent, { name: pathBasename(local.vad) }) : L.stt.vadMissing}
         </span>
       </Field>
       <Field label={L.stt.language}>
         <span style={{ fontSize: FS.small, color: C.fg2 }}>{String(info.language || 'zh')}</span>
       </Field>
+      {unavailable ? (
+        <span {...{ key: 'na' }} style={{ fontSize: FS.tiny, color: C.orange, lineHeight: 1.5 }}>
+          {fmt(L.stt.unavailableHint, { error: String(s.sttError || '').slice(0, 120) })}
+        </span>
+      ) : null}
       <div {...{ key: 'dl' }} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <Btn {...{ key: 'i8' }} disabled={running} onClick={() => installStt('all', false)}>
+        <Btn {...{ key: 'i8' }} disabled={running || unavailable} onClick={() => installStt('all', false)}>
           {L.stt.download}
         </Btn>
-        <Btn {...{ key: 'f32' }} disabled={running} onClick={() => installStt('all', true)}>
+        <Btn {...{ key: 'f32' }} disabled={running || unavailable} onClick={() => installStt('all', true)}>
           {L.stt.downloadFp32}
         </Btn>
       </div>
