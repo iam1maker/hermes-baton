@@ -650,7 +650,9 @@ fixture also carried an absolute path. They now discover the install from `HERME
 (the directory holding `hermes-agent/`) and the profile from `HERMES_HOME`, overridable with
 `HERMES_REPO` / `BATON_PROBE_HOME` / `BATON_PY` / `BATON_HERMES`.
 
-- `git grep -n "/Users/1maker" -- .` -> no matches.
+- A tree-wide grep for the author's home directory returns nothing; the only `/Users/...`
+  strings left are the documented `/Users/you/...` placeholders in README.md and
+  docs/models.md.
 - `PYTHONPATH=<venv site-packages> python3 scripts/probe-routes.py` -> `/health`, `/state`,
   `/devices?seconds=2` all 200 after the change (daemon pid 97649, state `ready`).
 - `PYTHONPATH=<venv site-packages> python3 scripts/verify-gateway.py` -> `RESULT PASS`
