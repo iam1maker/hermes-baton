@@ -619,3 +619,24 @@ Gates on the same build: `typecheck: clean (24 files, ts 5.9.3)`,
 `build: ok (19 module(s))` (bundle 127.4 KiB, sha256 `a1a7e730461c`),
 `SUMMARY 5/5 suites passed, 0 failed`, `EXIT 0` (75 assertions), and
 `scripts/cjk-scan.py .` reporting one file (`src/desktop/i18n/zh.ts`, 2201 CJK).
+
+## CI on a clean machine (2026-11-27 12:49, measured)
+
+The workflow in `.github/workflows/ci.yml` ran green on `ubuntu-latest` for
+`b6ba1d4`: setup, checkout, `npm ci` in `dev/`, typecheck, build, dirty-tree
+check, the five suites (`SUMMARY 5/5 suites passed, 0 failed`), `node --check`
+on the four shipped products, and the ASCII scan. Two real defects surfaced on
+that first clean run and are fixed here:
+
+- `ERR_MODULE_NOT_FOUND: Cannot find package '@hermes/plugin-sdk'` -- the stubs
+  the suites load the bundle against lived in `tests/node_modules`, which
+  `.gitignore` drops. They are now tracked under `tests/support/` and `run.sh`
+  copies them into the ignored path.
+- the ASCII gate exited 1 on any CJK hit, so it failed even on a clean tree; it
+  now takes an `--allow` list (default `src/desktop/i18n/zh.ts`) and fails only
+  on hits outside it. Both directions were checked by hand.
+
+Also worth recording: `macos-14` runners are refused for this account
+(`The configuration 'macos-14-arm64-us-default' is not supported`), and nothing
+in the pipeline needs macOS -- esbuild 0.28.2 output is byte-identical on Linux,
+which the dirty-tree check confirmed.
