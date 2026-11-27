@@ -14,7 +14,10 @@ permissions:
 
 jobs:
   build-and-test:
-    runs-on: macos-14
+    # Linux runner: nothing here needs macOS (the Swift bridge is not built in CI),
+    # and esbuild 0.28.2 output is byte-identical across platforms, which is what
+    # the dirty-tree check below relies on.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
