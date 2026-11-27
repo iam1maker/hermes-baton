@@ -3,7 +3,569 @@
 // src/desktop/plugin.tsx
 import { host } from "@hermes/plugin-sdk";
 import { useEffect, useState } from "react";
+
+// src/desktop/i18n/en.ts
+var en = {
+  plugin: {
+    name: "Remote voice input",
+    description: "Voice remote for Hermes: hold the mic key to insert locally transcribed text, map keys to submit / stop / new session / canned phrases, and switch between remote models."
+  },
+  nav: {
+    title: "Remote voice input"
+  },
+  palette: {
+    title: "Remote voice input",
+    keywords: ["mic", "voice", "dictation", "remote", "speech", "microphone", "transcribe", "remote control"]
+  },
+  common: {
+    unknown: "unknown",
+    running: "Working\u2026",
+    scanning: "Scanning\u2026",
+    separator: " | ",
+    dot: " \xB7 ",
+    listSeparator: ", ",
+    fullWidthSpace: " "
+  },
+  deviceLabels: {
+    "xiaomi-bt-remote-2": "Xiaomi BT Remote 2",
+    "chromecast-google-tv": "Chromecast Remote"
+  },
+  states: {
+    ready: "Ready",
+    capturing: "Recording",
+    transcribing: "Transcribing",
+    starting: "Connecting",
+    stopped: "Stopped",
+    error: "Error"
+  },
+  chip: {
+    offline: "Offline",
+    device: "Device {device}",
+    battery: "Battery {level}%",
+    batteryLabel: "Battery {level}%",
+    open: "Click to open settings"
+  },
+  page: {
+    subtitle: "{device} \xB7 On-device SenseVoice \xB7 {language} \xB7 {model}",
+    backendNotConnected: "Backend offline",
+    remoteTriggered: "triggered by remote",
+    reconnect: "Reconnect",
+    reconnectTitle: "Rescan and reconnect the remote",
+    startListening: "Start listening",
+    stopListening: "Stop listening",
+    backendDown: "Backend unreachable: {error} (the gateway starts the Node daemon on demand; if this keeps happening, check ~/.hermes/baton/daemon.out)",
+    rival: 'Another atvv-link is running (pid {pids}). It competes for the same remote, which shows up as "connects then drops" or "no audio". Quit the DSH wireless mic, then click Reconnect.',
+    bluetoothTitle: "Open System Settings \u25B8 Privacy & Security \u25B8 Bluetooth, enable Hermes, then click Reconnect",
+    mockTitle: "Runs the same path as real speech to verify transcript \u2192 composer; no remote needed",
+    mockText: "This is a simulated utterance ({stamp})",
+    listenTitle: "Opens a 15-second window: press the voice key once and speak. Text is shown only, never inserted.",
+    listenActive: "Window open \xB7 {remain}s",
+    listenButton: "15s self-test",
+    noDevice: "No device connected",
+    modelLabel: "Model",
+    modelUnregistered: "Not registered (the key map below uses the full generic table)",
+    registerHint: "This model is not registered yet. Add its key table to {dir}/<model>.json and it shows up automatically.",
+    scanHint: "Click Scan to list remotes already connected or advertising (read-only, ~4s, does not disturb the current link).",
+    noCandidates: "No candidates found. Pair and connect the remote in System Settings \u25B8 Bluetooth first.",
+    unnamedDevice: "(unnamed device)",
+    connected: "Connected",
+    connectable: "Available",
+    inUse: "In use",
+    buttons: {
+      bluetooth: "Bluetooth access",
+      mock: "Simulate speech",
+      selftest: "Recognition self-test",
+      scan: "Scan devices",
+      switch: "Switch",
+      add: "Add",
+      load: "Load",
+      clear: "Clear",
+      refresh: "Refresh"
+    }
+  },
+  cards: {
+    link: "Link",
+    devices: "Remotes",
+    devicesHint: "Supports multiple ATVV voice remotes (Xiaomi BT Remote, Chromecast with Google TV and others). One bridge connects to one remote at a time and reconnects automatically after a switch.",
+    voice: "Voice delivery",
+    voiceHint: "Speak into the remote \u2192 SenseVoice transcribes on this machine \u2192 text goes into the composer. Recognition is local; audio never leaves the machine.",
+    phrases: "Canned phrases",
+    phrasesHint: 'Pick "Canned phrase" in the key map to insert one with a single press.',
+    keys: "Key mapping",
+    audio: "Audio capture",
+    audioHint: "Defaults come from the tuned DSH set: 350ms silence gap, 30s cap, 200ms trim, 100Hz high-pass. Adjust only when speech gets cut off.",
+    history: "Transcript history",
+    historyHint: "Stored on this machine only, and only while the toggle is on.",
+    logs: "Daemon log"
+  },
+  fields: {
+    afterRecognition: "After recognition",
+    afterRecognitionAuto: "Send directly when the draft is empty, otherwise insert",
+    afterRecognitionManual: "Insert into the composer; you still press Enter to send",
+    insertMode: "Insert mode",
+    insertInline: "Same line",
+    insertBlock: "New paragraph",
+    notifyAfterInsert: "Notify after insert",
+    autoConnect: "Auto-connect",
+    autoConnectHint: "Start listening to the remote as soon as the daemon boots",
+    autoReconnect: "Auto-reconnect",
+    autoReconnectHint: "Retry by itself after a Bluetooth drop; no manual click needed",
+    precision: "Precision",
+    precisionFp32: "fp32 weights: more accurate, ~0.3s slower; reloads the model immediately",
+    precisionInt8: "int8 quantised weights: fastest, lowest memory",
+    gap: "Silence gap",
+    gapHint: "How much silence ends an utterance",
+    max: "Max length",
+    maxHint: "Force a cut past this length",
+    trim: "Trim start",
+    trimHint: "Cut the initial key click / breath noise",
+    cutoff: "High-pass",
+    cutoffHint: "Filter out low-frequency rumble",
+    language: "Language",
+    languageHint: "zh / en / ja / ko / yue",
+    keyFilter: "Key ownership",
+    keyFilterActive: "Active device only",
+    keyFilterAny: "Both remotes",
+    keyFilterHint: "By default only the active remote acts (the other one is ignored and logged), matching the voice key. Volume keys are exempt and always stay with macOS.",
+    capture: "Capture keyboard keys",
+    captureHint: "Only needed for keys the bridge cannot see: when on, the plugin reads key events from the keyboard, which also captures Enter / Home on a normal keyboard.",
+    captureHintHid: "This remote reports {keys} through the bridge, so mapping those keys needs no capture.",
+    captureHintDefault: "This remote reports Back + volume keys through the bridge, so mapping those needs no capture."
+  },
+  toggles: {
+    on: "On",
+    off: "Off",
+    directSend: "Send",
+    insertOnly: "Insert",
+    notify: "Notify",
+    silent: "Silent"
+  },
+  tiles: {
+    linkState: "Link state",
+    live: "Capturing live",
+    standby: "Bridge standby",
+    battery: "Remote battery",
+    batteryUnknown: "Not reported",
+    batteryReplace: "Replace the battery",
+    batteryLow: "Running low",
+    batteryFull: "Plenty left",
+    engine: "Recognition",
+    sessions: "Utterances",
+    frames: "{frames} frames captured",
+    calls: "total \xB7 {calls} recognitions",
+    daemon: "Daemon",
+    modelLoad: "Model load {ms}ms",
+    notStarted: "Not running"
+  },
+  listen: {
+    waiting: "Press the voice key, say one sentence, release to transcribe ({remain}s left)",
+    capturing: "Recording\u2026 release to transcribe ({remain}s left)",
+    transcribing: "Transcribing\u2026",
+    done: 'Recognised in window: "{text}" ({inference}s inference / {audio}s audio) \xB7 not inserted',
+    timeout: "No key press within 15s: check the remote is connected and not taken over by DSH, then look for [hid] / [atvv] lines in the daemon log below",
+    error: "Recognition failed: {reason}",
+    unknownReason: "unknown reason"
+  },
+  selftest: {
+    result: 'Self-test: "{text}" ({inference}s inference / {audio}s audio)',
+    empty: "Self-test returned no text ({audio}s audio)",
+    fellBack: " (the test clip produced no text, so the built-in sample was used)",
+    emptyNote: " (even the built-in sample produced no text \u2014 the model or audio path is broken, check the log)"
+  },
+  keys: {
+    tableKey: "Key",
+    single: "Single",
+    double: "Double",
+    long: "Long",
+    selectPlaceholder: "Pick a key\u2026",
+    addMapping: "Add mapping",
+    timing: "Double-tap window {double}ms \xB7 Long press {long}ms",
+    defaultPrefix: "Default: {label}",
+    unknown: "Unknown",
+    notReported: "not reported by this model",
+    unknownTitle: "This key is not in the current model key table: you added it manually, so it stays visible",
+    deleteTitle: "Delete this mapping",
+    emptyProfile: "No mapping yet for this model (volume keys show only when configured). Pick a key below to add one.",
+    emptyAll: "No mappings yet. Pick a key below to add one.",
+    hintProfile: "{label}: the keys of this remote. {hint}",
+    hintGeneric: 'Single / double / long press. Back, ContextMenu and media keys come straight from the Bluetooth bridge; Enter, Home and friends need "Capture keyboard keys" below. This model is not registered yet \u2014 add its key table to {dir}/<model>.json and it shows up automatically.'
+  },
+  actions: {
+    submit: "Submit",
+    stop: "Stop",
+    newSession: "New session",
+    swallow: "Swallow",
+    swallowLong: "Swallow (do nothing)",
+    focus: "Focus composer",
+    none: "Ignore",
+    noAction: "(none)",
+    stopGenerating: "Stop generating",
+    createSession: "New session",
+    phraseQuoted: 'Phrase "{name}"'
+  },
+  phrases: {
+    deleteTitle: "Delete this phrase",
+    namePlaceholder: "Name",
+    textPlaceholder: "Text to insert",
+    empty: "No phrases yet. Add one below."
+  },
+  history: {
+    emptyEnabled: "Nothing stored yet.",
+    emptyDisabled: "History is off, so transcripts are not stored (turn the toggle on to record them).",
+    loadFailed: "Could not load history: {error}",
+    clearFailed: "Could not clear history: {error}"
+  },
+  logs: {
+    loadFailed: "Could not load the log: {error}",
+    empty: "(click Refresh to read the last 60 lines)"
+  },
+  notices: {
+    backendNotReady: "plugin backend is not ready",
+    recognitionFailed: "Recognition failed",
+    failed: "Recognition failed: {detail}",
+    empty: "Didn't catch that \u2014 try again?",
+    tooShort: "Too short ({ms}ms). Hold the voice key and say a few more words."
+  },
+  toasts: {
+    stopNoSession: "No focused session \u2014 nothing to stop",
+    stopFailed: "Stop failed: {error}",
+    sent: "\u{1F399} Sent",
+    insertedDraft: "Voice inserted (draft was not empty, so it was not sent)",
+    noComposer: "Transcription finished but there is no composer to write into: {text}",
+    inserted: "Voice inserted",
+    insertedWithSeconds: "Voice inserted ({secs})",
+    submitNoSession: "No focused session \u2014 nothing to submit",
+    submitNoAnswer: "Submit failed: the composer did not respond",
+    submitDraftError: "Submit failed: could not read the draft",
+    newChatFailed: "Could not start a new session",
+    phraseMissing: 'Phrase "{name}" does not exist',
+    phraseInsertFailed: "Could not insert the phrase: the composer did not respond",
+    saveFailed: "Save failed: {error}",
+    devicesFound: "Found {count} candidate remote(s)",
+    devicesNone: "No candidates found: pair and connect in System Settings \u25B8 Bluetooth first",
+    devicesCached: "These {count} device(s) are cached by the daemon (live scanning needs one app restart); you can switch right away.",
+    devicesNeedsRestart: "Device scanning needs one Hermes app restart (gateway routes are not hot-reloaded). You can still switch right now.",
+    scanFailed: "Scan failed: {error}",
+    switched: "Switched to {name}; the bridge is reconnecting",
+    settingsOpened: "Opened System Settings \u25B8 Privacy & Security \u25B8 Bluetooth: enable Hermes, then click Reconnect",
+    settingsLaunched: "System Settings opened: go to Privacy & Security \u25B8 Bluetooth, tick Hermes, then come back and click Reconnect",
+    settingsManual: "Open it manually: System Settings \u25B8 Privacy & Security \u25B8 Bluetooth \u2192 tick Hermes \u2192 come back and click Reconnect"
+  },
+  pet: {
+    sent: "\u{1F399} Sent"
+  },
+  rows: {
+    link: "Link",
+    device: "Device",
+    unnamed: "unnamed",
+    battery: "Battery",
+    recognition: "Recognition",
+    sessions: "Utterances",
+    sessionFrames: "{sessions} sessions / {frames} frames",
+    lastTranscript: "Last transcript",
+    lastError: "Last error",
+    daemon: "Daemon",
+    uptime: "pid {pid} \xB7 up {minutes} min"
+  }
+};
+
+// src/desktop/i18n/zh.ts
+var zh = {
+  plugin: {
+    name: "\u9065\u63A7\u5668\u8BED\u97F3\u8F93\u5165",
+    description: "\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668\uFF1A\u8BF4\u8BDD\u5373\u63D2\u5165\u672C\u5730\u8BC6\u522B\u7684\u6587\u5B57\uFF0C\u6309\u952E\u53EF\u6620\u5C04\u4E3A\u63D0\u4EA4/\u505C\u6B62/\u65B0\u5EFA\u4F1A\u8BDD/\u5E38\u7528\u8BED\uFF0C\u652F\u6301\u591A\u578B\u53F7"
+  },
+  nav: {
+    title: "\u9065\u63A7\u5668\u8BED\u97F3\u8F93\u5165"
+  },
+  palette: {
+    title: "\u9065\u63A7\u5668\u8BED\u97F3\u8F93\u5165",
+    keywords: ["mic", "voice", "dictation", "remote", "\u8BED\u97F3", "\u9EA6\u514B\u98CE", "\u9065\u63A7\u5668", "\u542C\u5199"]
+  },
+  common: {
+    unknown: "\u672A\u77E5",
+    running: "\u8FD0\u884C\u4E2D\u2026",
+    scanning: "\u626B\u63CF\u4E2D\u2026",
+    separator: "\uFF5C",
+    dot: " \xB7 ",
+    listSeparator: "\u3001",
+    fullWidthSpace: "\u3000"
+  },
+  deviceLabels: {
+    "xiaomi-bt-remote-2": "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668 2",
+    "chromecast-google-tv": "Chromecast \u9065\u63A7\u5668"
+  },
+  states: {
+    ready: "\u5C31\u7EEA",
+    capturing: "\u6536\u97F3\u4E2D",
+    transcribing: "\u8BC6\u522B\u4E2D",
+    starting: "\u8FDE\u63A5\u4E2D",
+    stopped: "\u5DF2\u505C\u6B62",
+    error: "\u5F02\u5E38"
+  },
+  chip: {
+    offline: "\u672A\u8FDE\u63A5",
+    device: "\u8BBE\u5907 {device}",
+    battery: "\u7535\u91CF {level}%",
+    batteryLabel: "\u7535\u91CF {level}%",
+    open: "\u70B9\u51FB\u6253\u5F00\u8BBE\u7F6E"
+  },
+  page: {
+    subtitle: "{device}\u3000\xB7\u3000SenseVoice \u672C\u673A\u8BC6\u522B \xB7 {language} \xB7 {model}",
+    backendNotConnected: "\u540E\u7AEF\u672A\u8FDE\u63A5",
+    remoteTriggered: "\u9065\u63A7\u5668\u89E6\u53D1",
+    reconnect: "\u91CD\u8FDE",
+    reconnectTitle: "\u91CD\u65B0\u626B\u63CF\u5E76\u8FDE\u63A5\u9065\u63A7\u5668",
+    startListening: "\u5F00\u59CB\u76D1\u542C",
+    stopListening: "\u505C\u6B62\u76D1\u542C",
+    backendDown: "\u540E\u7AEF\u4E0D\u53EF\u8FBE\uFF1A{error}\u3000\uFF08\u7F51\u5173\u5185\u7684 Python \u4FA7\u4F1A\u6309\u9700\u62C9\u8D77 Node \u5B88\u62A4\u8FDB\u7A0B\uFF1B\u82E5\u6301\u7EED\u5931\u8D25\uFF0C\u770B ~/.hermes/baton/daemon.out\uFF09",
+    rival: "\u53E6\u4E00\u4E2A atvv-link \u6B63\u5728\u8DD1\uFF08pid {pids}\uFF09\uFF1A\u5B83\u548C\u672C\u63D2\u4EF6\u62A2\u540C\u4E00\u53F0\u9065\u63A7\u5668\u7684\u8FDE\u63A5\uFF0C\u8868\u73B0\u4E3A\u300C\u8FDE\u4E0A\u5C31\u6389\u300D\u6216\u300C\u6536\u4E0D\u5230\u97F3\u9891\u300D\u3002\u8BF7\u9000\u51FA DSH \u7684\u65E0\u7EBF\u9EA6\u540E\u518D\u70B9\u300C\u91CD\u8FDE\u300D\u3002",
+    bluetoothTitle: "\u6253\u5F00\u300C\u7CFB\u7EDF\u8BBE\u7F6E \u25B8 \u9690\u79C1\u4E0E\u5B89\u5168\u6027 \u25B8 \u84DD\u7259\u300D\uFF0C\u628A Hermes \u52FE\u4E0A\uFF0C\u7136\u540E\u70B9\u300C\u91CD\u8FDE\u300D",
+    mockTitle: "\u8D70\u548C\u771F\u5B9E\u8BED\u97F3\u76F8\u540C\u7684\u901A\u8DEF\uFF0C\u9A8C\u8BC1\u300C\u8F6C\u5199 \u2192 \u8F93\u5165\u6846\u300D\uFF0C\u4E0D\u9700\u8981\u9065\u63A7\u5668",
+    mockText: "\u8FD9\u662F\u4E00\u6761\u6A21\u62DF\u8BED\u97F3\uFF08{stamp}\uFF09",
+    listenTitle: "\u5F00\u4E00\u4E2A 15 \u79D2\u7A97\u53E3\uFF1A\u671F\u95F4\u6309\u4E00\u6B21\u9065\u63A7\u5668\u8BED\u97F3\u952E\u8BF4\u8BDD\uFF0C\u53EA\u663E\u793A\u6587\u5B57\uFF0C\u4E0D\u6539\u8F93\u5165\u6846",
+    listenActive: "\u7A97\u53E3\u5F00\u7740 \xB7 {remain}s",
+    listenButton: "\u7A97\u53E3\u81EA\u68C0 15 \u79D2",
+    noDevice: "\u672A\u8FDE\u63A5\u8BBE\u5907",
+    modelLabel: "\u578B\u53F7",
+    modelUnregistered: "\u672A\u767B\u8BB0\uFF08\u4E0B\u9762\u6309\u952E\u6620\u5C04\u6309\u901A\u7528\u5168\u91CF\u8868\u663E\u793A\uFF09",
+    registerHint: "\u8FD9\u4E2A\u578B\u53F7\u8FD8\u6CA1\u767B\u8BB0\uFF0C\u628A\u5B83\u7684\u952E\u8868\u52A0\u8FDB {dir}/<\u578B\u53F7>.json \u5C31\u4F1A\u81EA\u52A8\u51FA\u73B0\u3002",
+    scanHint: "\u70B9\u300C\u626B\u63CF\u8BBE\u5907\u300D\u5217\u51FA\u7CFB\u7EDF\u91CC\u5DF2\u8FDE\u63A5\u548C\u6B63\u5728\u5E7F\u64AD\u7684\u9065\u63A7\u5668\uFF08\u53EA\u8BFB\uFF0C\u4E0D\u5F71\u54CD\u5F53\u524D\u94FE\u8DEF\uFF0C\u7EA6 4 \u79D2\uFF09\u3002",
+    noCandidates: "\u6CA1\u53D1\u73B0\u5019\u9009\u8BBE\u5907\uFF1A\u5148\u5728 \u7CFB\u7EDF\u8BBE\u7F6E \u25B8 \u84DD\u7259 \u91CC\u628A\u9065\u63A7\u5668\u914D\u5BF9\u5E76\u8FDE\u63A5\u3002",
+    unnamedDevice: "\uFF08\u672A\u547D\u540D\u8BBE\u5907\uFF09",
+    connected: "\u5DF2\u8FDE\u63A5",
+    connectable: "\u53EF\u8FDE\u63A5",
+    inUse: "\u4F7F\u7528\u4E2D",
+    buttons: {
+      bluetooth: "\u84DD\u7259\u6388\u6743",
+      mock: "\u6A21\u62DF\u4E00\u6761\u8BED\u97F3",
+      selftest: "\u8BC6\u522B\u81EA\u68C0",
+      scan: "\u626B\u63CF\u8BBE\u5907",
+      switch: "\u5207\u6362",
+      add: "\u6DFB\u52A0",
+      load: "\u8F7D\u5165",
+      clear: "\u6E05\u7A7A",
+      refresh: "\u5237\u65B0"
+    }
+  },
+  cards: {
+    link: "\u94FE\u8DEF",
+    devices: "\u9065\u63A7\u5668",
+    devicesHint: "\u652F\u6301\u591A\u53F0 ATVV \u8BED\u97F3\u9065\u63A7\u5668\uFF08\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668\u3001Chromecast with Google TV \u7B49\uFF09\u3002\u4E00\u6761\u6865\u540C\u4E00\u65F6\u523B\u53EA\u8FDE\u4E00\u53F0\uFF0C\u5207\u6362\u540E\u4F1A\u81EA\u52A8\u91CD\u8FDE\u3002",
+    voice: "\u8BED\u97F3\u843D\u5730",
+    voiceHint: "\u9065\u63A7\u5668\u8BED\u97F3\u952E\u8BF4\u8BDD \u2192 \u672C\u673A SenseVoice \u8BC6\u522B \u2192 \u6587\u672C\u8FDB\u5165\u5F53\u524D\u8F93\u5165\u6846\u3002\u8BC6\u522B\u5728\u672C\u673A\u5B8C\u6210\uFF0C\u97F3\u9891\u4E0D\u51FA\u673A\u5668\u3002",
+    phrases: "\u5E38\u7528\u8BED",
+    phrasesHint: "\u5728\u300C\u6309\u952E\u6620\u5C04\u300D\u91CC\u9009\u300C\u5E38\u7528\u8BED\u300D\uFF0C\u4E00\u53E5\u8BDD\u76F4\u63A5\u843D\u5730\u3002",
+    keys: "\u6309\u952E\u6620\u5C04",
+    audio: "\u6536\u97F3\u53C2\u6570",
+    audioHint: "\u9ED8\u8BA4\u503C\u6765\u81EA DSH \u90A3\u5957\u8C03\u597D\u7684\uFF1A350ms \u65AD\u53E5\u300130s \u4E0A\u9650\u3001200ms \u6390\u5934\u3001100Hz \u9AD8\u901A\u3002\u542C\u4E0D\u6E05\u6216\u5403\u5B57\u65F6\u518D\u52A8\u3002",
+    history: "\u8BED\u97F3\u5386\u53F2",
+    historyHint: "\u4EC5\u5B58\u672C\u673A\uFF1B\u6253\u5F00\u5F00\u5173\u540E\u624D\u5199\u5165\u3002",
+    logs: "\u5B88\u62A4\u8FDB\u7A0B\u65E5\u5FD7"
+  },
+  fields: {
+    afterRecognition: "\u8BC6\u522B\u540E",
+    afterRecognitionAuto: "\u8349\u7A3F\u4E3A\u7A7A\u65F6\u76F4\u63A5\u53D1\u9001\uFF0C\u6709\u8349\u7A3F\u5219\u63D2\u5165",
+    afterRecognitionManual: "\u53EA\u5199\u8FDB\u8F93\u5165\u6846\uFF0C\u53D1\u9001\u4ECD\u7531\u4F60\u6309 Enter",
+    insertMode: "\u63D2\u5165\u65B9\u5F0F",
+    insertInline: "\u540C\u4E00\u884C",
+    insertBlock: "\u53E6\u8D77\u4E00\u6BB5",
+    notifyAfterInsert: "\u63D2\u5165\u540E\u63D0\u793A",
+    autoConnect: "\u81EA\u52A8\u8FDE\u63A5",
+    autoConnectHint: "\u5B88\u62A4\u8FDB\u7A0B\u542F\u52A8\u540E\u7ACB\u5373\u76D1\u542C\u9065\u63A7\u5668",
+    autoReconnect: "\u65AD\u7EBF\u81EA\u52A8\u91CD\u8FDE",
+    autoReconnectHint: "\u84DD\u7259\u6389\u7EBF\u540E\u81EA\u5DF1\u91CD\u8BD5\uFF0C\u4E0D\u7528\u624B\u52A8\u70B9",
+    precision: "\u8BC6\u522B\u7CBE\u5EA6",
+    precisionFp32: "fp32 \u6743\u91CD\uFF1A\u66F4\u51C6\uFF0C\u63A8\u7406\u7EA6 +0.3s\uFF1B\u5207\u6362\u540E\u7ACB\u523B\u91CD\u8F7D\u6A21\u578B",
+    precisionInt8: "int8 \u91CF\u5316\u6743\u91CD\uFF1A\u6700\u5FEB\u3001\u5185\u5B58\u6700\u7701",
+    gap: "\u65AD\u53E5\u9759\u97F3",
+    gapHint: "\u9759\u97F3\u591A\u4E45\u7B97\u8BF4\u5B8C\u4E00\u53E5",
+    max: "\u5355\u6B21\u4E0A\u9650",
+    maxHint: "\u8D85\u8FC7\u5C31\u5F3A\u5236\u65AD\u53E5",
+    trim: "\u6390\u5934",
+    trimHint: "\u5207\u6389\u5F00\u5934\u7684\u6309\u952E / \u6C14\u6D41\u566A\u58F0",
+    cutoff: "\u9AD8\u901A\u6EE4\u6CE2",
+    cutoffHint: "\u6EE4\u6389\u4F4E\u9891\u8F70\u9E23",
+    language: "\u8BC6\u522B\u8BED\u8A00",
+    languageHint: "zh / en / ja / ko / yue",
+    keyFilter: "\u6309\u952E\u5F52\u5C5E",
+    keyFilterActive: "\u53EA\u6709\u5F53\u524D\u8BBE\u5907",
+    keyFilterAny: "\u4E24\u53F0\u90FD\u8BA4",
+    keyFilterHint: "\u9ED8\u8BA4\u53EA\u6709\u5F53\u524D\u751F\u6548\u7684\u90A3\u53F0\u7BA1\u4E8B\uFF08\u53E6\u4E00\u53F0\u7684\u6309\u952E\u88AB\u5FFD\u7565\u5E76\u8BB0\u4E00\u6761\u65E5\u5FD7\uFF09\uFF0C\u8DDF\u8BED\u97F3\u952E\u8D70\u540C\u4E00\u53F0\u3002\u97F3\u91CF\u952E\u4E0D\u5728\u6B64\u5217\uFF0C\u59CB\u7EC8\u5F52 macOS\u3002",
+    capture: "\u6355\u83B7\u952E\u76D8\u6309\u952E",
+    captureHint: "\u53EA\u6709\u300C\u6865\u62FF\u4E0D\u5230\u7684\u952E\u300D\u624D\u9700\u8981\u5B83\uFF1A\u6253\u5F00\u540E\u63D2\u4EF6\u6539\u4ECE\u952E\u76D8\u4E8B\u4EF6\u91CC\u8BA4\u952E\uFF0C\u666E\u901A\u952E\u76D8\u7684 Enter / Home \u4E5F\u4F1A\u88AB\u4E00\u8D77\u63A5\u7BA1\u3002",
+    captureHintHid: "\u8FD9\u53F0\u9065\u63A7\u5668\u4E0A\u62A5 {keys}\uFF08\u6865\u76F4\u901A\uFF09\uFF0C\u6620\u5C04\u8FD9\u4E9B\u952E\u4E0D\u7528\u5F00\u3002",
+    captureHintDefault: "\u8FD9\u53F0\u9065\u63A7\u5668\u4E0A\u62A5 Back + \u97F3\u91CF\u952E\uFF08\u6865\u76F4\u901A\uFF09\uFF0C\u6620\u5C04\u8FD9\u4E9B\u952E\u4E0D\u7528\u5F00\u3002"
+  },
+  toggles: {
+    on: "\u5F00",
+    off: "\u5173",
+    directSend: "\u76F4\u63A5\u53D1\u9001",
+    insertOnly: "\u53EA\u63D2\u5165",
+    notify: "\u63D0\u793A",
+    silent: "\u4E0D\u63D0\u793A"
+  },
+  tiles: {
+    linkState: "\u94FE\u8DEF\u72B6\u6001",
+    live: "\u5B9E\u65F6\u91C7\u96C6\u4E2D",
+    standby: "\u84DD\u7259\u6865\u5F85\u547D",
+    battery: "\u9065\u63A7\u5668\u7535\u91CF",
+    batteryUnknown: "\u672A\u4E0A\u62A5",
+    batteryReplace: "\u8BE5\u6362\u7535\u6C60\u4E86",
+    batteryLow: "\u7535\u91CF\u504F\u4F4E",
+    batteryFull: "\u7535\u91CF\u5145\u8DB3",
+    engine: "\u8BC6\u522B\u5F15\u64CE",
+    sessions: "\u8BED\u97F3\u4F1A\u8BDD",
+    frames: "\u7D2F\u8BA1 {frames} \u5E27\u97F3\u9891",
+    calls: "\u6B21 \xB7 \u8BC6\u522B {calls} \u6B21",
+    daemon: "\u5B88\u62A4\u8FDB\u7A0B",
+    modelLoad: "\u6A21\u578B\u52A0\u8F7D {ms}ms",
+    notStarted: "\u672A\u542F\u52A8"
+  },
+  listen: {
+    waiting: "\u6309\u4E0B\u9065\u63A7\u5668\u8BED\u97F3\u952E\uFF0C\u8BF4\u4E00\u53E5\uFF0C\u677E\u624B\u5373\u8BC6\u522B\uFF08\u5269 {remain}s\uFF09",
+    capturing: "\u6B63\u5728\u91C7\u96C6\u2026\u677E\u624B\u540E\u5F00\u59CB\u8BC6\u522B\uFF08\u5269 {remain}s\uFF09",
+    transcribing: "\u8BC6\u522B\u4E2D\u2026",
+    done: "\u7A97\u53E3\u5185\u8BC6\u522B\uFF1A\u300C{text}\u300D\uFF08{inference}s \u63A8\u7406 / {audio}s \u97F3\u9891\uFF09\xB7 \u672A\u5199\u5165\u8F93\u5165\u6846",
+    timeout: "15 \u79D2\u5185\u6CA1\u6536\u5230\u6309\u952E\uFF1A\u786E\u8BA4\u9065\u63A7\u5668\u5DF2\u8FDE\u63A5\u3001\u6CA1\u88AB DSH \u62A2\u5360\uFF0C\u5E76\u770B\u4E0B\u9762\u7684\u5B88\u62A4\u8FDB\u7A0B\u65E5\u5FD7\u6709\u6CA1\u6709 [hid] / [atvv] \u884C",
+    error: "\u8BC6\u522B\u5931\u8D25\uFF1A{reason}",
+    unknownReason: "\u672A\u77E5\u539F\u56E0"
+  },
+  selftest: {
+    result: "\u81EA\u68C0\u7ED3\u679C\uFF1A\u300C{text}\u300D\uFF08{inference}s \u63A8\u7406 / {audio}s \u97F3\u9891\uFF09",
+    empty: "\u81EA\u68C0\u7ED3\u679C\u4E3A\u7A7A\uFF08{audio}s \u97F3\u9891\uFF09",
+    fellBack: "\u3000\uFF08\u6D4B\u8BD5\u97F3\u9891\u6CA1\u8BC6\u522B\u51FA\u6587\u5B57\uFF0C\u5DF2\u81EA\u52A8\u6539\u7528\u5185\u7F6E\u6837\u672C\uFF09",
+    emptyNote: "\u3000\uFF08\u8FDE\u5185\u7F6E\u6837\u672C\u90FD\u6CA1\u8BC6\u522B\u51FA\u6587\u5B57\u2014\u2014\u6A21\u578B\u6216\u97F3\u9891\u901A\u8DEF\u6709\u95EE\u9898\uFF0C\u770B\u65E5\u5FD7\uFF09"
+  },
+  keys: {
+    tableKey: "\u952E",
+    single: "\u5355\u51FB",
+    double: "\u53CC\u51FB",
+    long: "\u957F\u6309",
+    selectPlaceholder: "\u9009\u62E9\u952E\u540D\u2026",
+    addMapping: "\u6DFB\u52A0\u6620\u5C04",
+    timing: "\u53CC\u51FB\u7A97\u53E3 {double}ms \xB7 \u957F\u6309 {long}ms",
+    defaultPrefix: "\u9ED8\u8BA4\uFF1A{label}",
+    unknown: "\u672A\u77E5",
+    notReported: "\u8BE5\u578B\u53F7\u672A\u4E0A\u62A5",
+    unknownTitle: "\u8FD9\u4E2A\u952E\u4E0D\u5728\u5F53\u524D\u578B\u53F7\u7684\u952E\u8868\u91CC\uFF1A\u662F\u4F60\u624B\u52A8\u6DFB\u52A0\u7684\uFF0C\u4FDD\u7559\u663E\u793A",
+    deleteTitle: "\u5220\u9664\u8FD9\u6761\u6620\u5C04",
+    emptyProfile: "\u8FD9\u4E2A\u578B\u53F7\u7684\u952E\u8FD8\u6CA1\u914D\u4EFB\u4F55\u6620\u5C04\uFF08\u97F3\u91CF\u952E\u914D\u4E86\u624D\u663E\u793A\uFF09\u3002\u5728\u4E0B\u9762\u9009\u4E00\u4E2A\u952E\u540D\u6DFB\u52A0\u3002",
+    emptyAll: "\u8FD8\u6CA1\u6709\u6620\u5C04\u3002\u5728\u4E0B\u9762\u9009\u4E00\u4E2A\u952E\u540D\u6DFB\u52A0\u3002",
+    hintProfile: "{label}\uFF1A\u8FD9\u53F0\u9065\u63A7\u5668\u7684\u952E\u3002{hint}",
+    hintGeneric: "\u5355\u51FB / \u53CC\u51FB / \u957F\u6309\u4E09\u79CD\u624B\u52BF\u3002Back\u3001ContextMenu \u4E0E\u5A92\u4F53\u952E\u7531\u84DD\u7259\u6865\u76F4\u63A5\u4E0A\u62A5\uFF1BEnter\u3001Home \u7B49\u952E\u9700\u8981\u6253\u5F00\u4E0B\u9762\u7684\u300C\u6355\u83B7\u952E\u76D8\u300D\u3002\u8FD9\u4E2A\u578B\u53F7\u8FD8\u6CA1\u767B\u8BB0\uFF0C\u628A\u5B83\u7684\u952E\u8868\u52A0\u8FDB {dir}/<\u578B\u53F7>.json \u5C31\u4F1A\u81EA\u52A8\u51FA\u73B0\u3002"
+  },
+  actions: {
+    submit: "\u63D0\u4EA4",
+    stop: "\u505C\u6B62",
+    newSession: "\u65B0\u4F1A\u8BDD",
+    swallow: "\u541E\u6389",
+    swallowLong: "\u541E\u6389\uFF08\u4E0D\u505A\u4EFB\u4F55\u4E8B\uFF09",
+    focus: "\u805A\u7126\u8F93\u5165\u6846",
+    none: "\u5FFD\u7565",
+    noAction: "\uFF08\u65E0\uFF09",
+    stopGenerating: "\u505C\u6B62\u751F\u6210",
+    createSession: "\u65B0\u5EFA\u4F1A\u8BDD",
+    phraseQuoted: "\u5E38\u7528\u8BED\u300C{name}\u300D"
+  },
+  phrases: {
+    deleteTitle: "\u5220\u9664\u8FD9\u6761\u5E38\u7528\u8BED",
+    namePlaceholder: "\u540D\u79F0",
+    textPlaceholder: "\u63D2\u5165\u7684\u6587\u5B57",
+    empty: "\u8FD8\u6CA1\u6709\u5E38\u7528\u8BED\uFF0C\u5728\u4E0B\u9762\u52A0\u4E00\u6761\u3002"
+  },
+  history: {
+    emptyEnabled: "\u8FD8\u6CA1\u6709\u843D\u76D8\u8BB0\u5F55\u3002",
+    emptyDisabled: "\u5386\u53F2\u8BB0\u5F55\u5DF2\u5173\u95ED\uFF0C\u8BC6\u522B\u7ED3\u679C\u4E0D\u843D\u76D8\uFF08\u4E0A\u9762\u7684\u5F00\u5173\u6253\u5F00\u540E\u624D\u4F1A\u5199\u5165\uFF09\u3002",
+    loadFailed: "\u8BFB\u53D6\u5386\u53F2\u5931\u8D25\uFF1A{error}",
+    clearFailed: "\u6E05\u7A7A\u5931\u8D25\uFF1A{error}"
+  },
+  logs: {
+    loadFailed: "\u8BFB\u53D6\u65E5\u5FD7\u5931\u8D25\uFF1A{error}",
+    empty: "\uFF08\u70B9\u53F3\u4E0A\u89D2\u5237\u65B0\u8BFB\u53D6\u6700\u8FD1 60 \u884C\uFF09"
+  },
+  notices: {
+    backendNotReady: "\u63D2\u4EF6\u540E\u7AEF\u672A\u5C31\u7EEA",
+    recognitionFailed: "\u8BC6\u522B\u5931\u8D25",
+    failed: "\u8BC6\u522B\u5931\u8D25\uFF1A{detail}",
+    empty: "\u6CA1\u542C\u6E05\uFF0C\u518D\u8BF4\u4E00\u6B21\uFF1F",
+    tooShort: "\u8FD9\u6761\u592A\u77ED\u4E86\uFF08{ms}ms\uFF09\uFF0C\u6309\u4F4F\u8BED\u97F3\u952E\u591A\u8BF4\u4E24\u4E2A\u5B57"
+  },
+  toasts: {
+    stopNoSession: "\u6CA1\u6709\u805A\u7126\u7684\u4F1A\u8BDD\uFF0C\u65E0\u6CD5\u505C\u6B62",
+    stopFailed: "\u505C\u6B62\u5931\u8D25\uFF1A{error}",
+    sent: "\u{1F399} \u5DF2\u53D1\u9001",
+    insertedDraft: "\u8BED\u97F3\u5DF2\u63D2\u5165\uFF08\u8349\u7A3F\u975E\u7A7A\uFF0C\u672A\u81EA\u52A8\u53D1\u9001\uFF09",
+    noComposer: "\u8BED\u97F3\u8BC6\u522B\u5B8C\u6210\uFF0C\u4F46\u5F53\u524D\u6CA1\u6709\u53EF\u5199\u5165\u7684\u8F93\u5165\u6846\uFF1A{text}",
+    inserted: "\u5DF2\u63D2\u5165\u8BED\u97F3",
+    insertedWithSeconds: "\u5DF2\u63D2\u5165\u8BED\u97F3\uFF08{secs}\uFF09",
+    submitNoSession: "\u6CA1\u6709\u805A\u7126\u7684\u4F1A\u8BDD\uFF0C\u65E0\u6CD5\u63D0\u4EA4",
+    submitNoAnswer: "\u63D0\u4EA4\u5931\u8D25\uFF1A\u8F93\u5165\u6846\u6CA1\u6709\u5E94\u7B54",
+    submitDraftError: "\u63D0\u4EA4\u5931\u8D25\uFF1A\u8BFB\u53D6\u8349\u7A3F\u51FA\u9519",
+    newChatFailed: "\u65B0\u5EFA\u4F1A\u8BDD\u5931\u8D25",
+    phraseMissing: "\u5E38\u7528\u8BED\u300C{name}\u300D\u4E0D\u5B58\u5728",
+    phraseInsertFailed: "\u5E38\u7528\u8BED\u63D2\u5165\u5931\u8D25\uFF1A\u6CA1\u6709\u8F93\u5165\u6846\u5E94\u7B54",
+    saveFailed: "\u4FDD\u5B58\u5931\u8D25\uFF1A{error}",
+    devicesFound: "\u53D1\u73B0 {count} \u53F0\u5019\u9009\u9065\u63A7\u5668",
+    devicesNone: "\u6CA1\u53D1\u73B0\u5019\u9009\u8BBE\u5907\uFF1A\u5148\u5728 \u7CFB\u7EDF\u8BBE\u7F6E \u25B8 \u84DD\u7259 \u91CC\u914D\u5BF9\u8FDE\u63A5",
+    devicesCached: "\u8FD9\u662F\u5B88\u62A4\u8FDB\u7A0B\u7F13\u5B58\u7684 {count} \u53F0\u8BBE\u5907\uFF08\u5B9E\u65F6\u626B\u63CF\u9700\u91CD\u542F\u4E00\u6B21\u5E94\u7528\uFF09\uFF0C\u53EF\u4EE5\u76F4\u63A5\u5207\u6362\u3002",
+    devicesNeedsRestart: "\u8BBE\u5907\u626B\u63CF\u8981\u91CD\u542F\u4E00\u6B21 Hermes \u5E94\u7528\u624D\u53EF\u7528\uFF08\u7F51\u5173\u8DEF\u7531\u4E0D\u70ED\u66F4\u65B0\uFF09\u3002\u773C\u4E0B\u53EF\u4EE5\u76F4\u63A5\u8BA9\u6211\u5E2E\u4F60\u5207\u6362\u3002",
+    scanFailed: "\u626B\u63CF\u5931\u8D25\uFF1A{error}",
+    switched: "\u5DF2\u5207\u6362\u5230 {name}\uFF0C\u6865\u6B63\u5728\u91CD\u8FDE",
+    settingsOpened: "\u5DF2\u6253\u5F00 \u7CFB\u7EDF\u8BBE\u7F6E \u25B8 \u9690\u79C1\u4E0E\u5B89\u5168\u6027 \u25B8 \u84DD\u7259\uFF1A\u7ED9 Hermes \u52FE\u4E0A\uFF0C\u7136\u540E\u70B9\u300C\u91CD\u8FDE\u300D",
+    settingsLaunched: "\u7CFB\u7EDF\u8BBE\u7F6E\u5DF2\u6253\u5F00\uFF1A\u5207\u5230 \u9690\u79C1\u4E0E\u5B89\u5168\u6027 \u25B8 \u84DD\u7259\uFF0C\u52FE\u9009 Hermes\uFF0C\u518D\u56DE\u6765\u70B9\u300C\u91CD\u8FDE\u300D",
+    settingsManual: "\u624B\u52A8\u6253\u5F00\uFF1A\u7CFB\u7EDF\u8BBE\u7F6E \u25B8 \u9690\u79C1\u4E0E\u5B89\u5168\u6027 \u25B8 \u84DD\u7259 \u2192 \u52FE\u9009 Hermes \u2192 \u56DE\u6765\u70B9\u300C\u91CD\u8FDE\u300D"
+  },
+  pet: {
+    sent: "\u{1F399} \u5DF2\u53D1\u9001"
+  },
+  rows: {
+    link: "\u94FE\u8DEF",
+    device: "\u8BBE\u5907",
+    unnamed: "\u672A\u547D\u540D",
+    battery: "\u7535\u91CF",
+    recognition: "\u8BC6\u522B",
+    sessions: "\u8BED\u97F3\u4F1A\u8BDD",
+    sessionFrames: "{sessions} \u6B21 / {frames} \u5E27",
+    lastTranscript: "\u4E0A\u6B21\u8F6C\u5199",
+    lastError: "\u6700\u8FD1\u9519\u8BEF",
+    daemon: "\u5B88\u62A4\u8FDB\u7A0B",
+    uptime: "pid {pid} \xB7 \u8FD0\u884C {minutes} \u5206\u949F"
+  }
+};
+
+// src/desktop/i18n/index.ts
+var messages = { zh, en };
+function resolveLocale(pref) {
+  const explicit = typeof pref === "string" ? pref.trim().toLowerCase() : "";
+  if (explicit.indexOf("zh") === 0) return "zh";
+  if (explicit.indexOf("en") === 0) return "en";
+  try {
+    const language = typeof navigator !== "undefined" && navigator ? String(navigator.language || "") : "";
+    if (language.toLowerCase().indexOf("zh") === 0) return "zh";
+  } catch {
+  }
+  return "en";
+}
+var locale = resolveLocale();
+var L = messages[locale];
+function applyLocale(pref) {
+  locale = resolveLocale(pref);
+  L = messages[locale];
+  return locale;
+}
+function fmt(template, vars) {
+  if (!vars) return template;
+  return template.replace(
+    /\{(\w+)\}/g,
+    (match, key) => Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : match
+  );
+}
+
+// src/desktop/plugin.tsx
 import { jsx, jsxs } from "react/jsx-runtime";
+var zhMessages = zh;
+var enMessages = en;
 var C = {
   fg: "var(--ui-text-primary)",
   fg2: "var(--ui-text-secondary)",
@@ -85,6 +647,7 @@ function readPrefs() {
   } catch {
     prefs = { ...DEFAULT_PREFS };
   }
+  applyLocale(prefs.locale);
 }
 function savePrefs(patch) {
   prefs = { ...prefs, ...patch };
@@ -110,7 +673,7 @@ function cancel(id) {
   }
 }
 async function api(path, options) {
-  if (!REST) throw new Error("\u63D2\u4EF6\u540E\u7AEF\u672A\u5C31\u7EEA");
+  if (!REST) throw new Error(L.notices.backendNotReady);
   return REST(path, options);
 }
 function post(path, body, opts) {
@@ -254,14 +817,14 @@ async function insertIntoComposer(text, mode) {
 async function stopGeneration() {
   const sessionId = focusedSessionId();
   if (!sessionId) {
-    toast("\u6CA1\u6709\u805A\u7126\u7684\u4F1A\u8BDD\uFF0C\u65E0\u6CD5\u505C\u6B62");
+    toast(L.toasts.stopNoSession);
     return false;
   }
   try {
     await host.request("session.interrupt", { session_id: sessionId });
     return true;
   } catch (error) {
-    toast("\u505C\u6B62\u5931\u8D25\uFF1A" + errText(error), "error");
+    toast(fmt(L.toasts.stopFailed, { error: errText(error) }), "error");
     return false;
   }
 }
@@ -278,29 +841,37 @@ async function deliverTranscript(entry) {
       draft = "";
     }
     if (!draft.trim() && submitNow(text)) {
-      petLine("\u{1F399} \u5DF2\u53D1\u9001");
+      petLine(L.toasts.sent);
       return;
     }
     if (draft.trim()) {
       await insertIntoComposer(text);
-      toast("\u8BED\u97F3\u5DF2\u63D2\u5165\uFF08\u8349\u7A3F\u975E\u7A7A\uFF0C\u672A\u81EA\u52A8\u53D1\u9001\uFF09");
+      toast(L.toasts.insertedDraft);
       return;
     }
   }
   const ok = await insertIntoComposer(text);
   if (!ok) {
-    toast("\u8BED\u97F3\u8BC6\u522B\u5B8C\u6210\uFF0C\u4F46\u5F53\u524D\u6CA1\u6709\u53EF\u5199\u5165\u7684\u8F93\u5165\u6846\uFF1A" + text.slice(0, 40));
+    toast(fmt(L.toasts.noComposer, { text: text.slice(0, 40) }));
     return;
   }
   petLine("\u{1F399} " + text.slice(0, 40));
   if (prefs.notifyTranscript) {
     const secs = entry.audioSeconds ? Number(entry.audioSeconds).toFixed(1) + "s" : "";
-    toast("\u5DF2\u63D2\u5165\u8BED\u97F3" + (secs ? "\uFF08" + secs + "\uFF09" : ""));
+    toast(secs ? fmt(L.toasts.insertedWithSeconds, { secs }) : L.toasts.inserted);
   }
 }
 var engine = {
   states: {},
   lastAction: null
+};
+var ACTION_LABEL = {
+  submit: L.actions.submit,
+  stop: L.actions.stop,
+  "new-session": L.actions.newSession,
+  swallow: L.actions.swallowLong,
+  focus: L.actions.focus,
+  none: L.actions.none
 };
 function bindingOf(code) {
   if (!cfg.keysEnabled) return null;
@@ -313,14 +884,14 @@ function runAction(action, code) {
   if (action === "submit") {
     const sessionId = focusedSessionId();
     if (!sessionId) {
-      toast("\u6CA1\u6709\u805A\u7126\u7684\u4F1A\u8BDD\uFF0C\u65E0\u6CD5\u63D0\u4EA4");
+      toast(L.toasts.submitNoSession);
       return;
     }
     Promise.resolve(host.composer.getDraft(null)).then((draft) => {
       const text = String(draft || "").trim();
       if (!text) return;
-      if (!submitNow(text)) toast("\u63D0\u4EA4\u5931\u8D25\uFF1A\u8F93\u5165\u6846\u6CA1\u6709\u5E94\u7B54", "error");
-    }).catch(() => toast("\u63D0\u4EA4\u5931\u8D25\uFF1A\u8BFB\u53D6\u8349\u7A3F\u51FA\u9519", "error"));
+      if (!submitNow(text)) toast(L.toasts.submitNoAnswer, "error");
+    }).catch(() => toast(L.toasts.submitDraftError, "error"));
     return;
   }
   if (action === "stop") {
@@ -331,7 +902,7 @@ function runAction(action, code) {
     try {
       host.newChat();
     } catch {
-      toast("\u65B0\u5EFA\u4F1A\u8BDD\u5931\u8D25", "error");
+      toast(L.toasts.newChatFailed, "error");
     }
     return;
   }
@@ -346,11 +917,11 @@ function runAction(action, code) {
   if (action && typeof action === "object" && action.action === "phrase") {
     const text = cfg.phrases && cfg.phrases[String(action.name)];
     if (!text) {
-      toast("\u5E38\u7528\u8BED\u300C" + action.name + "\u300D\u4E0D\u5B58\u5728", "error");
+      toast(fmt(L.toasts.phraseMissing, { name: action.name }), "error");
       return;
     }
     insertIntoComposer(text).then((ok) => {
-      if (!ok) toast("\u5E38\u7528\u8BED\u63D2\u5165\u5931\u8D25\uFF1A\u6CA1\u6709\u8F93\u5165\u6846\u5E94\u7B54", "error");
+      if (!ok) toast(L.toasts.phraseInsertFailed, "error");
       else petLine("\u{1F399} " + String(text).slice(0, 40));
     });
     return;
@@ -506,6 +1077,11 @@ async function tick() {
   }
   if (tickCount % 4 === 1) refreshState();
 }
+function noticeText(payload) {
+  if (payload.kind === "too-short") return fmt(L.notices.tooShort, { ms: Number(payload.audioMs || 0) });
+  if (payload.kind === "empty") return L.notices.empty;
+  return String(payload.message || "");
+}
 function handleEvent(event) {
   const type = event && event.type;
   const payload = event && event.payload || {};
@@ -544,17 +1120,17 @@ function handleEvent(event) {
   }
   if (type === "error") {
     if (listenActive()) {
-      listenWin.note = String(payload.message || "\u8BC6\u522B\u5931\u8D25");
+      listenWin.note = String(payload.message || L.notices.recognitionFailed);
       listenSettle("error");
     }
-    toast("\u8BC6\u522B\u5931\u8D25\uFF1A" + String(payload.message || "").slice(0, 80), "error");
+    toast(fmt(L.notices.failed, { detail: String(payload.message || "").slice(0, 80) }), "error");
     publish();
     return;
   }
   if (type === "notice") {
-    const message = String(payload.message || "");
+    const message = noticeText(payload);
     if (listenActive() && payload.kind === "empty") {
-      listenWin.note = message || "\u6CA1\u542C\u6E05";
+      listenWin.note = message || L.notices.empty;
       listenWin.phase = "waiting";
       publish();
       return;
@@ -758,7 +1334,7 @@ function Empty({ children }) {
   return /* @__PURE__ */ jsx("p", { style: { margin: 0, fontSize: FS.small, color: C.fg4, lineHeight: "18px" }, children });
 }
 function Toggle({ on, onChange, labels }) {
-  const pair = labels || ["\u5F00", "\u5173"];
+  const pair = labels || [L.toggles.on, L.toggles.off];
   return /* @__PURE__ */ jsx(
     Segmented,
     {
@@ -886,14 +1462,11 @@ function Dot({ tone, pulse }) {
     }
   );
 }
-var STATE_TEXT = {
-  ready: "\u5C31\u7EEA",
-  capturing: "\u6536\u97F3\u4E2D",
-  transcribing: "\u8BC6\u522B\u4E2D",
-  starting: "\u8FDE\u63A5\u4E2D",
-  stopped: "\u5DF2\u505C\u6B62",
-  error: "\u5F02\u5E38"
-};
+function stateText(state) {
+  const key = String(state || "");
+  const table = L.states;
+  return key && table[key] ? table[key] : "";
+}
 function stateTone(state) {
   if (state === "ready") return C.green;
   if (state === "capturing") return C.accent;
@@ -979,7 +1552,7 @@ function BatteryIcon({ key, level }) {
       height: 12,
       viewBox: "0 0 24 12",
       role: "img",
-      "aria-label": "\u7535\u91CF " + level + "%",
+      "aria-label": fmt(L.chip.batteryLabel, { level }),
       style: { display: "block", flexShrink: 0 },
       children: [
         /* @__PURE__ */ jsx("rect", { ...{ key: "case" }, x: 0.6, y: 0.6, width: 18.8, height: 10.8, rx: 3.2, fill: "none", stroke: C.fg4, strokeWidth: 1.2 }),
@@ -998,16 +1571,16 @@ function Chip() {
   const detail = s.error || snap && snap.detail;
   const battery = snap && (snap.battery !== null && snap.battery !== void 0 ? snap.battery : snap.diagnostics && snap.diagnostics.battery);
   const level = typeof battery === "number" && isFinite(battery) ? Math.max(0, Math.min(100, Math.round(battery))) : null;
-  const label = s.error ? "\u672A\u8FDE\u63A5" : STATE_TEXT[state ?? ""] || (snap ? String(state || "\u672A\u77E5") : "\u2026");
+  const label = s.error ? L.chip.offline : stateText(state) || (snap ? String(state || L.common.unknown) : "\u2026");
   const showText = !error && (state === "transcribing" || state === "starting" || state === "stopped" || !state);
-  const device = snap && snap.device ? snap.device.name || snap.device.id : null;
+  const device = deviceName(snap);
   const title = [
-    "\u6307\u6325",
+    L.plugin.name,
     label + (detail ? " \xB7 " + detail : ""),
-    device ? "\u8BBE\u5907 " + device : null,
-    level !== null ? "\u7535\u91CF " + level + "%" : null,
-    "\u70B9\u51FB\u6253\u5F00\u8BBE\u7F6E"
-  ].filter(Boolean).join("\uFF5C");
+    device ? fmt(L.chip.device, { device }) : null,
+    level !== null ? fmt(L.chip.battery, { level }) : null,
+    L.chip.open
+  ].filter(Boolean).join(L.common.separator);
   return /* @__PURE__ */ jsxs(
     "button",
     {
@@ -1057,11 +1630,30 @@ function profileKeysOf(profile) {
   if (!keys) return null;
   return keys.filter((k, i) => typeof k === "string" && k && keys.indexOf(k) === i);
 }
+function deviceName(snap) {
+  const dev = snap && snap.device;
+  const raw = dev ? dev.name || dev.id : null;
+  if (!raw) return null;
+  const id = snap && snap.profileId ? String(snap.profileId) : "";
+  return id && L.deviceLabels[id] || String(raw);
+}
+function profileLabel(profile) {
+  if (!profile) return L.page.modelUnregistered;
+  const id = profile.id ? String(profile.id) : "";
+  return id && L.deviceLabels[id] || profile.label || id || "";
+}
 function actionLabel(action) {
-  const LABELS = { submit: "\u63D0\u4EA4", stop: "\u505C\u6B62", "new-session": "\u65B0\u4F1A\u8BDD", swallow: "\u541E\u6389", none: "\u5FFD\u7565", focus: "\u805A\u7126\u8F93\u5165\u6846" };
+  const LABELS = {
+    submit: L.actions.submit,
+    stop: L.actions.stop,
+    "new-session": L.actions.newSession,
+    swallow: L.actions.swallow,
+    none: L.actions.none,
+    focus: L.actions.focus
+  };
   if (!action) return "";
   if (typeof action === "string") return LABELS[action] || action;
-  if (action.action === "phrase") return "\u5E38\u7528\u8BED\u300C" + String(action.name || "") + "\u300D";
+  if (action.action === "phrase") return fmt(L.actions.phraseQuoted, { name: String(action.name || "") });
   return "";
 }
 function defaultTapLabel(profile, code, tap) {
@@ -1070,14 +1662,14 @@ function defaultTapLabel(profile, code, tap) {
 }
 function actionOptions(phrases) {
   const base = [
-    { value: "", label: "\uFF08\u65E0\uFF09" },
-    { value: "submit", label: "\u63D0\u4EA4" },
-    { value: "stop", label: "\u505C\u6B62\u751F\u6210" },
-    { value: "new-session", label: "\u65B0\u5EFA\u4F1A\u8BDD" },
-    { value: "focus", label: "\u805A\u7126\u8F93\u5165\u6846" },
-    { value: "swallow", label: "\u541E\u6389" }
+    { value: "", label: L.actions.noAction },
+    { value: "submit", label: L.actions.submit },
+    { value: "stop", label: L.actions.stopGenerating },
+    { value: "new-session", label: L.actions.createSession },
+    { value: "focus", label: L.actions.focus },
+    { value: "swallow", label: L.actions.swallow }
   ];
-  const list = Object.keys(phrases || {}).map((name) => ({ value: "phrase:" + name, label: "\u5E38\u7528\u8BED\u300C" + name + "\u300D" }));
+  const list = Object.keys(phrases || {}).map((name) => ({ value: "phrase:" + name, label: fmt(L.actions.phraseQuoted, { name }) }));
   return base.concat(list);
 }
 function actionToValue(action) {
@@ -1109,7 +1701,7 @@ async function patchConfig(patch) {
     }
     return true;
   } catch (error) {
-    toast("\u4FDD\u5B58\u5931\u8D25\uFF1A" + errText(error), "error");
+    toast(fmt(L.toasts.saveFailed, { error: errText(error) }), "error");
     return false;
   }
 }
@@ -1167,7 +1759,7 @@ function RemoteMicPage() {
       const list = res && res.devices || [];
       setDevices(list);
       toast(
-        list.length ? "\u53D1\u73B0 " + list.length + " \u53F0\u5019\u9009\u9065\u63A7\u5668" : "\u6CA1\u53D1\u73B0\u5019\u9009\u8BBE\u5907\uFF1A\u5148\u5728 \u7CFB\u7EDF\u8BBE\u7F6E \u25B8 \u84DD\u7259 \u91CC\u914D\u5BF9\u8FDE\u63A5",
+        list.length ? fmt(L.toasts.devicesFound, { count: list.length }) : L.toasts.devicesNone,
         list.length ? "info" : "warning"
       );
     } catch (error) {
@@ -1176,11 +1768,11 @@ function RemoteMicPage() {
         const cachedList = snap && snap.devices || [];
         setDevices(cachedList);
         toast(
-          cachedList.length ? "\u8FD9\u662F\u5B88\u62A4\u8FDB\u7A0B\u7F13\u5B58\u7684 " + cachedList.length + " \u53F0\u8BBE\u5907\uFF08\u5B9E\u65F6\u626B\u63CF\u9700\u91CD\u542F\u4E00\u6B21\u5E94\u7528\uFF09\uFF0C\u53EF\u4EE5\u76F4\u63A5\u5207\u6362\u3002" : "\u8BBE\u5907\u626B\u63CF\u8981\u91CD\u542F\u4E00\u6B21 Hermes \u5E94\u7528\u624D\u53EF\u7528\uFF08\u7F51\u5173\u8DEF\u7531\u4E0D\u70ED\u66F4\u65B0\uFF09\u3002\u773C\u4E0B\u53EF\u4EE5\u76F4\u63A5\u8BA9\u6211\u5E2E\u4F60\u5207\u6362\u3002",
+          cachedList.length ? fmt(L.toasts.devicesCached, { count: cachedList.length }) : L.toasts.devicesNeedsRestart,
           "warning"
         );
       } else {
-        toast("\u626B\u63CF\u5931\u8D25\uFF1A" + text, "warning");
+        toast(fmt(L.toasts.scanFailed, { error: text }), "warning");
       }
     } finally {
       setScanning(false);
@@ -1189,7 +1781,7 @@ function RemoteMicPage() {
   const useDevice = async (candidate) => {
     const ok = await patchConfig({ deviceId: candidate.id, deviceName: candidate.name || "" });
     if (!ok) return;
-    toast("\u5DF2\u5207\u6362\u5230 " + (candidate.name || String(candidate.id).slice(0, 8)) + "\uFF0C\u6865\u6B63\u5728\u91CD\u8FDE", "info");
+    toast(fmt(L.toasts.switched, { name: candidate.name || String(candidate.id).slice(0, 8) }), "info");
     setDevices(null);
   };
   const diag = snap && snap.diagnostics || {};
@@ -1201,12 +1793,13 @@ function RemoteMicPage() {
   const uptimeText = uptimeMin >= 60 ? Math.floor(uptimeMin / 60) + "h " + String(uptimeMin % 60).padStart(2, "0") + "m" : uptimeMin + "m";
   const modelName = String(tr.model || "").split("/").pop() || "\u2014";
   const precision = String(tr.precision || "").toLowerCase();
-  const devText = device.name ? device.name + (device.id ? " \xB7 " + String(device.id).slice(0, 8) : "") : "\u672A\u8FDE\u63A5\u8BBE\u5907";
+  const activeDevice = deviceName(snap);
+  const devText = activeDevice ? activeDevice + (device.id ? L.common.dot + String(device.id).slice(0, 8) : "") : L.page.noDevice;
   const cachedDevices = snap && snap.devices || [];
   const listed = devices !== null ? devices : cachedDevices.length ? cachedDevices : null;
   const tone = s.error ? C.red : stateTone(state);
-  const stateLabel = s.error ? "\u540E\u7AEF\u672A\u8FDE\u63A5" : STATE_TEXT[state ?? ""] || String(state || "\u2026");
-  const detailText = snap && snap.detail ? snap.detail === "remote" ? "\u9065\u63A7\u5668\u89E6\u53D1" : String(snap.detail) : "";
+  const stateLabel = s.error ? L.page.backendNotConnected : stateText(state) || String(state || "\u2026");
+  const detailText = snap && snap.detail ? snap.detail === "remote" ? L.page.remoteTriggered : String(snap.detail) : "";
   const live = state === "capturing" || state === "transcribing";
   const notice = (t, extra) => ({
     border: "1px solid " + TINT(t, 36),
@@ -1257,7 +1850,7 @@ function RemoteMicPage() {
           ),
           /* @__PURE__ */ jsxs("div", { ...{ key: "t" }, style: { display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }, children: [
             /* @__PURE__ */ jsxs("div", { ...{ key: "l1" }, style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }, children: [
-              /* @__PURE__ */ jsx("h1", { style: { margin: 0, fontSize: FS.title, fontWeight: 650, letterSpacing: "-0.015em", lineHeight: "24px" }, children: "\u6307\u6325" }),
+              /* @__PURE__ */ jsx("h1", { style: { margin: 0, fontSize: FS.title, fontWeight: 650, letterSpacing: "-0.015em", lineHeight: "24px" }, children: L.plugin.name }),
               /* @__PURE__ */ jsxs(
                 "span",
                 {
@@ -1286,23 +1879,23 @@ function RemoteMicPage() {
               {
                 ...{ key: "l2" },
                 style: { fontSize: FS.small, color: C.fg3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-                children: devText + "\u3000\xB7\u3000SenseVoice \u672C\u673A\u8BC6\u522B \xB7 " + String(tr.language || "zh") + " \xB7 " + modelName + (precision ? " \xB7 " + precision : "")
+                children: fmt(L.page.subtitle, { device: devText, language: String(tr.language || "zh"), model: modelName }) + (precision ? L.common.dot + precision : "")
               }
             )
           ] }),
           /* @__PURE__ */ jsx("span", { ...{ key: "sp" }, style: { flex: 1 } }),
           /* @__PURE__ */ jsxs("div", { ...{ key: "act" }, style: { display: "flex", gap: 8 }, children: [
-            /* @__PURE__ */ jsx(Btn, { ...{ key: "r" }, onClick: () => run("/restart"), disabled: busy, title: "\u91CD\u65B0\u626B\u63CF\u5E76\u8FDE\u63A5\u9065\u63A7\u5668", children: "\u91CD\u8FDE" }),
-            /* @__PURE__ */ jsx(Btn, { ...{ key: "s" }, onClick: () => run(state === "stopped" ? "/start" : "/stop"), disabled: busy, children: state === "stopped" ? "\u5F00\u59CB\u76D1\u542C" : "\u505C\u6B62\u76D1\u542C" })
+            /* @__PURE__ */ jsx(Btn, { ...{ key: "r" }, onClick: () => run("/restart"), disabled: busy, title: L.page.reconnectTitle, children: L.page.reconnect }),
+            /* @__PURE__ */ jsx(Btn, { ...{ key: "s" }, onClick: () => run(state === "stopped" ? "/start" : "/stop"), disabled: busy, children: state === "stopped" ? L.page.startListening : L.page.stopListening })
           ] })
         ] }),
-        s.error ? /* @__PURE__ */ jsx("div", { ...{ key: "err" }, style: notice(C.red), children: "\u540E\u7AEF\u4E0D\u53EF\u8FBE\uFF1A" + s.error + "\u3000\uFF08\u7F51\u5173\u5185\u7684 Python \u4FA7\u4F1A\u6309\u9700\u62C9\u8D77 Node \u5B88\u62A4\u8FDB\u7A0B\uFF1B\u82E5\u6301\u7EED\u5931\u8D25\uFF0C\u770B ~/.hermes/baton/daemon.out\uFF09" }) : null,
-        rivals.length > 0 ? /* @__PURE__ */ jsx("div", { ...{ key: "rival" }, style: notice(C.orange), children: "\u53E6\u4E00\u4E2A atvv-link \u6B63\u5728\u8DD1\uFF08pid " + rivals.map((c) => c.pid).join("\u3001") + "\uFF09\uFF1A\u5B83\u548C\u672C\u63D2\u4EF6\u62A2\u540C\u4E00\u53F0\u9065\u63A7\u5668\u7684\u8FDE\u63A5\uFF0C\u8868\u73B0\u4E3A\u300C\u8FDE\u4E0A\u5C31\u6389\u300D\u6216\u300C\u6536\u4E0D\u5230\u97F3\u9891\u300D\u3002\u8BF7\u9000\u51FA DSH \u7684\u65E0\u7EBF\u9EA6\u540E\u518D\u70B9\u300C\u91CD\u8FDE\u300D\u3002" }) : null,
+        s.error ? /* @__PURE__ */ jsx("div", { ...{ key: "err" }, style: notice(C.red), children: fmt(L.page.backendDown, { error: s.error }) }) : null,
+        rivals.length > 0 ? /* @__PURE__ */ jsx("div", { ...{ key: "rival" }, style: notice(C.orange), children: fmt(L.page.rival, { pids: rivals.map((c) => c.pid).join(L.common.listSeparator) }) }) : null,
         /* @__PURE__ */ jsxs(
           Card,
           {
             ...{ key: "status" },
-            title: "\u94FE\u8DEF",
+            title: L.cards.link,
             tone,
             dense: true,
             action: /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }, children: [
@@ -1311,20 +1904,20 @@ function RemoteMicPage() {
                 {
                   ...{ key: "bt" },
                   ghost: true,
-                  title: "\u6253\u5F00\u300C\u7CFB\u7EDF\u8BBE\u7F6E \u25B8 \u9690\u79C1\u4E0E\u5B89\u5168\u6027 \u25B8 \u84DD\u7259\u300D\uFF0C\u628A Hermes \u52FE\u4E0A\uFF0C\u7136\u540E\u70B9\u300C\u91CD\u8FDE\u300D",
+                  title: L.page.bluetoothTitle,
                   onClick: async () => {
                     const opened = await run("/open/settings", { pane: "bluetooth" }, { quiet: true });
                     if (opened) {
-                      toast("\u5DF2\u6253\u5F00 \u7CFB\u7EDF\u8BBE\u7F6E \u25B8 \u9690\u79C1\u4E0E\u5B89\u5168\u6027 \u25B8 \u84DD\u7259\uFF1A\u7ED9 Hermes \u52FE\u4E0A\uFF0C\u7136\u540E\u70B9\u300C\u91CD\u8FDE\u300D", "info");
+                      toast(L.toasts.settingsOpened, "info");
                       return;
                     }
                     const launched = await openSystemSettingsApp();
                     toast(
-                      launched ? "\u7CFB\u7EDF\u8BBE\u7F6E\u5DF2\u6253\u5F00\uFF1A\u5207\u5230 \u9690\u79C1\u4E0E\u5B89\u5168\u6027 \u25B8 \u84DD\u7259\uFF0C\u52FE\u9009 Hermes\uFF0C\u518D\u56DE\u6765\u70B9\u300C\u91CD\u8FDE\u300D" : "\u624B\u52A8\u6253\u5F00\uFF1A\u7CFB\u7EDF\u8BBE\u7F6E \u25B8 \u9690\u79C1\u4E0E\u5B89\u5168\u6027 \u25B8 \u84DD\u7259 \u2192 \u52FE\u9009 Hermes \u2192 \u56DE\u6765\u70B9\u300C\u91CD\u8FDE\u300D",
+                      launched ? L.toasts.settingsLaunched : L.toasts.settingsManual,
                       launched ? "info" : "warning"
                     );
                   },
-                  children: "\u84DD\u7259\u6388\u6743"
+                  children: L.page.buttons.bluetooth
                 }
               ),
               /* @__PURE__ */ jsx(
@@ -1332,14 +1925,14 @@ function RemoteMicPage() {
                 {
                   ...{ key: "mock" },
                   ghost: true,
-                  title: "\u8D70\u548C\u771F\u5B9E\u8BED\u97F3\u76F8\u540C\u7684\u901A\u8DEF\uFF0C\u9A8C\u8BC1\u300C\u8F6C\u5199 \u2192 \u8F93\u5165\u6846\u300D\uFF0C\u4E0D\u9700\u8981\u9065\u63A7\u5668",
+                  title: L.page.mockTitle,
                   disabled: busy,
                   onClick: async () => {
                     const stamp = (/* @__PURE__ */ new Date()).toLocaleTimeString("zh-CN", { hour12: false });
-                    const result = await run("/mock/transcript", { text: "\u8FD9\u662F\u4E00\u6761\u6A21\u62DF\u8BED\u97F3\uFF08" + stamp + "\uFF09" });
+                    const result = await run("/mock/transcript", { text: fmt(L.page.mockText, { stamp }) });
                     if (result && result.transcript) setSelftest(null);
                   },
-                  children: "\u6A21\u62DF\u4E00\u6761\u8BED\u97F3"
+                  children: L.page.buttons.mock
                 }
               ),
               /* @__PURE__ */ jsx(
@@ -1352,7 +1945,7 @@ function RemoteMicPage() {
                     if (result) setSelftest(result.transcript || null);
                   },
                   disabled: busy,
-                  children: busy ? "\u8FD0\u884C\u4E2D\u2026" : "\u8BC6\u522B\u81EA\u68C0"
+                  children: busy ? L.common.running : L.page.buttons.selftest
                 }
               ),
               /* @__PURE__ */ jsx(
@@ -1361,25 +1954,25 @@ function RemoteMicPage() {
                   ...{ key: "listen" },
                   ghost: true,
                   active: listenWin.phase === "waiting" || listenWin.phase === "capturing" || listenWin.phase === "transcribing",
-                  title: "\u5F00\u4E00\u4E2A 15 \u79D2\u7A97\u53E3\uFF1A\u671F\u95F4\u6309\u4E00\u6B21\u9065\u63A7\u5668\u8BED\u97F3\u952E\u8BF4\u8BDD\uFF0C\u53EA\u663E\u793A\u6587\u5B57\uFF0C\u4E0D\u6539\u8F93\u5165\u6846",
+                  title: L.page.listenTitle,
                   onClick: () => startListenWindow(15e3),
-                  children: listenWin.phase === "waiting" || listenWin.phase === "capturing" || listenWin.phase === "transcribing" ? "\u7A97\u53E3\u5F00\u7740 \xB7 " + listenRemain() + "s" : "\u7A97\u53E3\u81EA\u68C0 15 \u79D2"
+                  children: listenWin.phase === "waiting" || listenWin.phase === "capturing" || listenWin.phase === "transcribing" ? fmt(L.page.listenActive, { remain: listenRemain() }) : L.page.listenButton
                 }
               )
             ] }),
             children: [
               /* @__PURE__ */ jsxs("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(172px, 1fr))", columnGap: 18, rowGap: 14 }, children: [
-                /* @__PURE__ */ jsxs(Tile, { ...{ key: "st" }, label: "\u94FE\u8DEF\u72B6\u6001", children: [
+                /* @__PURE__ */ jsxs(Tile, { ...{ key: "st" }, label: L.tiles.linkState, children: [
                   /* @__PURE__ */ jsx("span", { style: { fontSize: FS.metric, fontWeight: 600, letterSpacing: "-0.01em" }, children: stateLabel }),
-                  detailText || (live ? "\u5B9E\u65F6\u91C7\u96C6\u4E2D" : "\u84DD\u7259\u6865\u5F85\u547D")
+                  detailText || (live ? L.tiles.live : L.tiles.standby)
                 ] }),
                 /* @__PURE__ */ jsx(
                   Tile,
                   {
                     ...{ key: "bt" },
-                    label: "\u9065\u63A7\u5668\u7535\u91CF",
+                    label: L.tiles.battery,
                     divider: true,
-                    sub: battery === null || battery === void 0 ? "\u672A\u4E0A\u62A5" : battery <= 20 ? "\u8BE5\u6362\u7535\u6C60\u4E86" : battery <= 45 ? "\u7535\u91CF\u504F\u4F4E" : "\u7535\u91CF\u5145\u8DB3",
+                    sub: battery === null || battery === void 0 ? L.tiles.batteryUnknown : battery <= 20 ? L.tiles.batteryReplace : battery <= 45 ? L.tiles.batteryLow : L.tiles.batteryFull,
                     children: battery === null || battery === void 0 ? [/* @__PURE__ */ jsx("span", { ...{ key: "v" }, style: { fontSize: FS.metric, fontWeight: 600 }, children: "\u2014" })] : [
                       /* @__PURE__ */ jsx(BatteryIcon, { ...{ key: "i" }, level: battery }),
                       /* @__PURE__ */ jsx("span", { ...{ key: "v" }, style: { fontSize: FS.metric, fontWeight: 600, fontVariantNumeric: "tabular-nums" }, children: battery + "%" })
@@ -1390,7 +1983,7 @@ function RemoteMicPage() {
                   Tile,
                   {
                     ...{ key: "asr" },
-                    label: "\u8BC6\u522B\u5F15\u64CE",
+                    label: L.tiles.engine,
                     divider: true,
                     sub: modelName + (precision ? " \xB7 " + precision : ""),
                     children: [
@@ -1403,12 +1996,12 @@ function RemoteMicPage() {
                   Tile,
                   {
                     ...{ key: "ses" },
-                    label: "\u8BED\u97F3\u4F1A\u8BDD",
+                    label: L.tiles.sessions,
                     divider: true,
-                    sub: "\u7D2F\u8BA1 " + String(diag.frames || 0) + " \u5E27\u97F3\u9891",
+                    sub: fmt(L.tiles.frames, { frames: String(diag.frames || 0) }),
                     children: [
                       /* @__PURE__ */ jsx("span", { ...{ key: "v" }, style: { fontSize: FS.metric, fontWeight: 600, fontVariantNumeric: "tabular-nums" }, children: String(diag.sessions || 0) }),
-                      /* @__PURE__ */ jsx("span", { ...{ key: "u" }, style: { fontSize: FS.tiny, color: C.fg4 }, children: "\u6B21 \xB7 \u8BC6\u522B " + String(tr.calls || 0) + " \u6B21" })
+                      /* @__PURE__ */ jsx("span", { ...{ key: "u" }, style: { fontSize: FS.tiny, color: C.fg4 }, children: fmt(L.tiles.calls, { calls: String(tr.calls || 0) }) })
                     ]
                   }
                 ),
@@ -1416,11 +2009,11 @@ function RemoteMicPage() {
                   Tile,
                   {
                     ...{ key: "pid" },
-                    label: "\u5B88\u62A4\u8FDB\u7A0B",
+                    label: L.tiles.daemon,
                     divider: true,
-                    sub: tr.loadMs ? "\u6A21\u578B\u52A0\u8F7D " + tr.loadMs + "ms" : "",
+                    sub: tr.loadMs ? fmt(L.tiles.modelLoad, { ms: tr.loadMs }) : "",
                     children: [
-                      /* @__PURE__ */ jsx("span", { ...{ key: "v" }, style: { fontSize: FS.metric, fontWeight: 600, fontFamily: MONO }, children: snap ? "pid " + snap.pid : "\u672A\u542F\u52A8" }),
+                      /* @__PURE__ */ jsx("span", { ...{ key: "v" }, style: { fontSize: FS.metric, fontWeight: 600, fontFamily: MONO }, children: snap ? "pid " + snap.pid : L.tiles.notStarted }),
                       uptimeText
                     ]
                   }
@@ -1432,14 +2025,14 @@ function RemoteMicPage() {
                   style: notice(
                     listenWin.phase === "done" ? C.green : listenWin.phase === "error" ? C.red : listenWin.phase === "timeout" ? C.orange : C.accent
                   ),
-                  children: listenWin.phase === "waiting" ? (listenWin.note ? listenWin.note + "\u3000" : "") + "\u6309\u4E0B\u9065\u63A7\u5668\u8BED\u97F3\u952E\uFF0C\u8BF4\u4E00\u53E5\uFF0C\u677E\u624B\u5373\u8BC6\u522B\uFF08\u5269 " + listenRemain() + "s\uFF09" : listenWin.phase === "capturing" ? "\u6B63\u5728\u91C7\u96C6\u2026\u677E\u624B\u540E\u5F00\u59CB\u8BC6\u522B\uFF08\u5269 " + listenRemain() + "s\uFF09" : listenWin.phase === "transcribing" ? "\u8BC6\u522B\u4E2D\u2026" : listenWin.phase === "done" ? "\u7A97\u53E3\u5185\u8BC6\u522B\uFF1A\u300C" + listenWin.text + "\u300D\uFF08" + fmtSec(listenWin.entry && listenWin.entry.inferenceSeconds) + "s \u63A8\u7406 / " + fmtSec(listenWin.entry && listenWin.entry.audioSeconds) + "s \u97F3\u9891\uFF09\xB7 \u672A\u5199\u5165\u8F93\u5165\u6846" : listenWin.phase === "timeout" ? "15 \u79D2\u5185\u6CA1\u6536\u5230\u6309\u952E\uFF1A\u786E\u8BA4\u9065\u63A7\u5668\u5DF2\u8FDE\u63A5\u3001\u6CA1\u88AB DSH \u62A2\u5360\uFF0C\u5E76\u770B\u4E0B\u9762\u7684\u5B88\u62A4\u8FDB\u7A0B\u65E5\u5FD7\u6709\u6CA1\u6709 [hid] / [atvv] \u884C" : "\u8BC6\u522B\u5931\u8D25\uFF1A" + (listenWin.note || "\u672A\u77E5\u539F\u56E0")
+                  children: listenWin.phase === "waiting" ? (listenWin.note ? listenWin.note + L.common.fullWidthSpace : "") + fmt(L.listen.waiting, { remain: listenRemain() }) : listenWin.phase === "capturing" ? fmt(L.listen.capturing, { remain: listenRemain() }) : listenWin.phase === "transcribing" ? L.listen.transcribing : listenWin.phase === "done" ? fmt(L.listen.done, { text: listenWin.text, inference: fmtSec(listenWin.entry && listenWin.entry.inferenceSeconds), audio: fmtSec(listenWin.entry && listenWin.entry.audioSeconds) }) : listenWin.phase === "timeout" ? L.listen.timeout : fmt(L.listen.error, { reason: listenWin.note || L.listen.unknownReason })
                 }
               ) : null,
               selftest ? (() => {
                 const text = String(selftest.text || "");
                 const t = text ? C.green : C.orange;
-                const note = text ? "" : selftest.fellBack ? "\u3000\uFF08\u6D4B\u8BD5\u97F3\u9891\u6CA1\u8BC6\u522B\u51FA\u6587\u5B57\uFF0C\u5DF2\u81EA\u52A8\u6539\u7528\u5185\u7F6E\u6837\u672C\uFF09" : "\u3000\uFF08\u8FDE\u5185\u7F6E\u6837\u672C\u90FD\u6CA1\u8BC6\u522B\u51FA\u6587\u5B57\u2014\u2014\u6A21\u578B\u6216\u97F3\u9891\u901A\u8DEF\u6709\u95EE\u9898\uFF0C\u770B\u65E5\u5FD7\uFF09";
-                return /* @__PURE__ */ jsx("div", { style: notice(t), children: text ? "\u81EA\u68C0\u7ED3\u679C\uFF1A\u300C" + text + "\u300D\uFF08" + fmtSec(selftest.inferenceSeconds) + "s \u63A8\u7406 / " + fmtSec(selftest.audioSeconds) + "s \u97F3\u9891\uFF09" : "\u81EA\u68C0\u7ED3\u679C\u4E3A\u7A7A\uFF08" + fmtSec(selftest.audioSeconds) + "s \u97F3\u9891\uFF09" + note });
+                const note = text ? "" : selftest.fellBack ? L.selftest.fellBack : L.selftest.emptyNote;
+                return /* @__PURE__ */ jsx("div", { style: notice(t), children: text ? fmt(L.selftest.result, { text, inference: fmtSec(selftest.inferenceSeconds), audio: fmtSec(selftest.audioSeconds) }) : fmt(L.selftest.empty, { audio: fmtSec(selftest.audioSeconds) }) + note });
               })() : null
             ]
           }
@@ -1448,23 +2041,23 @@ function RemoteMicPage() {
           Card,
           {
             ...{ key: "devices" },
-            title: "\u9065\u63A7\u5668",
-            hint: "\u652F\u6301\u591A\u53F0 ATVV \u8BED\u97F3\u9065\u63A7\u5668\uFF08\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668\u3001Chromecast with Google TV \u7B49\uFF09\u3002\u4E00\u6761\u6865\u540C\u4E00\u65F6\u523B\u53EA\u8FDE\u4E00\u53F0\uFF0C\u5207\u6362\u540E\u4F1A\u81EA\u52A8\u91CD\u8FDE\u3002",
-            action: /* @__PURE__ */ jsx(Btn, { ...{ key: "scan" }, ghost: true, disabled: scanning, onClick: scanDevices, children: scanning ? "\u626B\u63CF\u4E2D\u2026" : "\u626B\u63CF\u8BBE\u5907" }),
+            title: L.cards.devices,
+            hint: L.cards.devicesHint,
+            action: /* @__PURE__ */ jsx(Btn, { ...{ key: "scan" }, ghost: true, disabled: scanning, onClick: scanDevices, children: scanning ? L.common.scanning : L.page.buttons.scan }),
             children: [
               /* @__PURE__ */ jsxs("div", { ...{ key: "cur" }, style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }, children: [
                 /* @__PURE__ */ jsx(Dot, { ...{ key: "d" }, tone }),
-                /* @__PURE__ */ jsx("span", { ...{ key: "n" }, style: { fontSize: FS.lead, fontWeight: 600 }, children: device.name || "\u672A\u8FDE\u63A5\u8BBE\u5907" }),
+                /* @__PURE__ */ jsx("span", { ...{ key: "n" }, style: { fontSize: FS.lead, fontWeight: 600 }, children: activeDevice || L.page.noDevice }),
                 device.id ? /* @__PURE__ */ jsx("span", { ...{ key: "i" }, style: { fontSize: FS.tiny, color: C.fg4, fontFamily: MONO }, children: String(device.id).slice(0, 8) }) : null,
-                battery !== null && battery !== void 0 ? /* @__PURE__ */ jsx("span", { ...{ key: "b" }, style: { fontSize: FS.tiny, color: C.fg3 }, children: "\u7535\u91CF " + battery + "%" }) : null
+                battery !== null && battery !== void 0 ? /* @__PURE__ */ jsx("span", { ...{ key: "b" }, style: { fontSize: FS.tiny, color: C.fg3 }, children: fmt(L.chip.battery, { level: battery }) }) : null
               ] }),
               /* @__PURE__ */ jsxs("div", { ...{ key: "model" }, style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }, children: [
-                /* @__PURE__ */ jsx("span", { ...{ key: "l" }, style: { fontSize: FS.micro, color: C.fg4, letterSpacing: "0.08em", fontWeight: 500 }, children: "\u578B\u53F7" }),
-                /* @__PURE__ */ jsx("span", { ...{ key: "v" }, style: { fontSize: FS.small, color: profile ? C.fg : C.fg3 }, children: profile ? profile.label + (profile.vendor ? " \xB7 " + profile.vendor : "") : "\u672A\u767B\u8BB0\uFF08\u4E0B\u9762\u6309\u952E\u6620\u5C04\u6309\u901A\u7528\u5168\u91CF\u8868\u663E\u793A\uFF09" }),
+                /* @__PURE__ */ jsx("span", { ...{ key: "l" }, style: { fontSize: FS.micro, color: C.fg4, letterSpacing: "0.08em", fontWeight: 500 }, children: L.page.modelLabel }),
+                /* @__PURE__ */ jsx("span", { ...{ key: "v" }, style: { fontSize: FS.small, color: profile ? C.fg : C.fg3 }, children: profile ? profileLabel(profile) + (profile.vendor ? L.common.dot + profile.vendor : "") : L.page.modelUnregistered }),
                 profile && profile.voiceHint ? /* @__PURE__ */ jsx("span", { ...{ key: "h" }, style: { fontSize: FS.small, color: C.fg3 }, children: String(profile.voiceHint) }) : null
               ] }),
-              !profile ? /* @__PURE__ */ jsx("div", { ...{ key: "reg" }, style: { fontSize: FS.small, color: C.fg4, lineHeight: "17px" }, children: "\u8FD9\u4E2A\u578B\u53F7\u8FD8\u6CA1\u767B\u8BB0\uFF0C\u628A\u5B83\u7684\u952E\u8868\u52A0\u8FDB " + devicesDir + "/<\u578B\u53F7>.json \u5C31\u4F1A\u81EA\u52A8\u51FA\u73B0\u3002" }) : null,
-              listed === null ? /* @__PURE__ */ jsx("div", { ...{ key: "hint" }, style: { fontSize: FS.small, color: C.fg4 }, children: "\u70B9\u300C\u626B\u63CF\u8BBE\u5907\u300D\u5217\u51FA\u7CFB\u7EDF\u91CC\u5DF2\u8FDE\u63A5\u548C\u6B63\u5728\u5E7F\u64AD\u7684\u9065\u63A7\u5668\uFF08\u53EA\u8BFB\uFF0C\u4E0D\u5F71\u54CD\u5F53\u524D\u94FE\u8DEF\uFF0C\u7EA6 4 \u79D2\uFF09\u3002" }) : listed.length === 0 ? /* @__PURE__ */ jsx("div", { ...{ key: "none" }, style: { fontSize: FS.small, color: C.fg3 }, children: "\u6CA1\u53D1\u73B0\u5019\u9009\u8BBE\u5907\uFF1A\u5148\u5728 \u7CFB\u7EDF\u8BBE\u7F6E \u25B8 \u84DD\u7259 \u91CC\u628A\u9065\u63A7\u5668\u914D\u5BF9\u5E76\u8FDE\u63A5\u3002" }) : /* @__PURE__ */ jsx(
+              !profile ? /* @__PURE__ */ jsx("div", { ...{ key: "reg" }, style: { fontSize: FS.small, color: C.fg4, lineHeight: "17px" }, children: fmt(L.page.registerHint, { dir: devicesDir }) }) : null,
+              listed === null ? /* @__PURE__ */ jsx("div", { ...{ key: "hint" }, style: { fontSize: FS.small, color: C.fg4 }, children: L.page.scanHint }) : listed.length === 0 ? /* @__PURE__ */ jsx("div", { ...{ key: "none" }, style: { fontSize: FS.small, color: C.fg3 }, children: L.page.noCandidates }) : /* @__PURE__ */ jsx(
                 "div",
                 {
                   ...{ key: "list" },
@@ -1496,11 +2089,11 @@ function RemoteMicPage() {
                             {
                               ...{ key: "n" },
                               style: { fontSize: FS.small, color: C.fg, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-                              children: candidate.name || "\uFF08\u672A\u547D\u540D\u8BBE\u5907\uFF09"
+                              children: candidate.name || L.page.unnamedDevice
                             }
                           ),
-                          /* @__PURE__ */ jsx("span", { ...{ key: "s" }, style: { fontSize: FS.tiny, color: C.fg4 }, children: candidate.connected ? "\u5DF2\u8FDE\u63A5" : "\u53EF\u8FDE\u63A5" }),
-                          active ? /* @__PURE__ */ jsx("span", { ...{ key: "on" }, style: { fontSize: FS.tiny, color: C.green }, children: "\u4F7F\u7528\u4E2D" }) : /* @__PURE__ */ jsx(Btn, { ...{ key: "u" }, ghost: true, disabled: busy, onClick: () => useDevice(candidate), children: "\u5207\u6362" })
+                          /* @__PURE__ */ jsx("span", { ...{ key: "s" }, style: { fontSize: FS.tiny, color: C.fg4 }, children: candidate.connected ? L.page.connected : L.page.connectable }),
+                          active ? /* @__PURE__ */ jsx("span", { ...{ key: "on" }, style: { fontSize: FS.tiny, color: C.green }, children: L.page.inUse }) : /* @__PURE__ */ jsx(Btn, { ...{ key: "u" }, ghost: true, disabled: busy, onClick: () => useDevice(candidate), children: L.page.buttons.switch })
                         ]
                       }
                     );
@@ -1520,48 +2113,48 @@ function RemoteMicPage() {
                 Card,
                 {
                   ...{ key: "voice" },
-                  title: "\u8BED\u97F3\u843D\u5730",
-                  hint: "\u9065\u63A7\u5668\u8BED\u97F3\u952E\u8BF4\u8BDD \u2192 \u672C\u673A SenseVoice \u8BC6\u522B \u2192 \u6587\u672C\u8FDB\u5165\u5F53\u524D\u8F93\u5165\u6846\u3002\u8BC6\u522B\u5728\u672C\u673A\u5B8C\u6210\uFF0C\u97F3\u9891\u4E0D\u51FA\u673A\u5668\u3002",
+                  title: L.cards.voice,
+                  hint: L.cards.voiceHint,
                   children: [
                     /* @__PURE__ */ jsx(
                       Field,
                       {
-                        label: "\u8BC6\u522B\u540E",
-                        hint: values.autoSend ? "\u8349\u7A3F\u4E3A\u7A7A\u65F6\u76F4\u63A5\u53D1\u9001\uFF0C\u6709\u8349\u7A3F\u5219\u63D2\u5165" : "\u53EA\u5199\u8FDB\u8F93\u5165\u6846\uFF0C\u53D1\u9001\u4ECD\u7531\u4F60\u6309 Enter",
+                        label: L.fields.afterRecognition,
+                        hint: values.autoSend ? L.fields.afterRecognitionAuto : L.fields.afterRecognitionManual,
                         children: /* @__PURE__ */ jsx(
                           Toggle,
                           {
                             on: Boolean(values.autoSend),
                             onChange: (on) => patchConfig({ autoSend: on }),
-                            labels: ["\u76F4\u63A5\u53D1\u9001", "\u53EA\u63D2\u5165"]
+                            labels: [L.toggles.directSend, L.toggles.insertOnly]
                           }
                         )
                       }
                     ),
-                    /* @__PURE__ */ jsx(Field, { label: "\u63D2\u5165\u65B9\u5F0F", children: /* @__PURE__ */ jsx(
+                    /* @__PURE__ */ jsx(Field, { label: L.fields.insertMode, children: /* @__PURE__ */ jsx(
                       Segmented,
                       {
                         value: prefs.insertMode,
-                        options: [{ value: "inline", label: "\u540C\u4E00\u884C" }, { value: "block", label: "\u53E6\u8D77\u4E00\u6BB5" }],
+                        options: [{ value: "inline", label: L.fields.insertInline }, { value: "block", label: L.fields.insertBlock }],
                         onChange: (v) => savePrefs({ insertMode: v })
                       }
                     ) }),
-                    /* @__PURE__ */ jsx(Field, { label: "\u63D2\u5165\u540E\u63D0\u793A", children: /* @__PURE__ */ jsx(
+                    /* @__PURE__ */ jsx(Field, { label: L.fields.notifyAfterInsert, children: /* @__PURE__ */ jsx(
                       Toggle,
                       {
                         on: Boolean(prefs.notifyTranscript),
                         onChange: (on) => savePrefs({ notifyTranscript: on }),
-                        labels: ["\u63D0\u793A", "\u4E0D\u63D0\u793A"]
+                        labels: [L.toggles.notify, L.toggles.silent]
                       }
                     ) }),
-                    /* @__PURE__ */ jsx(Field, { label: "\u81EA\u52A8\u8FDE\u63A5", hint: "\u5B88\u62A4\u8FDB\u7A0B\u542F\u52A8\u540E\u7ACB\u5373\u76D1\u542C\u9065\u63A7\u5668", children: /* @__PURE__ */ jsx(
+                    /* @__PURE__ */ jsx(Field, { label: L.fields.autoConnect, hint: L.fields.autoConnectHint, children: /* @__PURE__ */ jsx(
                       Toggle,
                       {
                         on: values.autoStart !== false,
                         onChange: (on) => patchConfig({ autoStart: on })
                       }
                     ) }),
-                    /* @__PURE__ */ jsx(Field, { label: "\u65AD\u7EBF\u81EA\u52A8\u91CD\u8FDE", hint: "\u84DD\u7259\u6389\u7EBF\u540E\u81EA\u5DF1\u91CD\u8BD5\uFF0C\u4E0D\u7528\u624B\u52A8\u70B9", children: /* @__PURE__ */ jsx(
+                    /* @__PURE__ */ jsx(Field, { label: L.fields.autoReconnect, hint: L.fields.autoReconnectHint, children: /* @__PURE__ */ jsx(
                       Toggle,
                       {
                         on: values.autoRestart !== false,
@@ -1575,8 +2168,8 @@ function RemoteMicPage() {
                 Card,
                 {
                   ...{ key: "phrases" },
-                  title: "\u5E38\u7528\u8BED",
-                  hint: "\u5728\u300C\u6309\u952E\u6620\u5C04\u300D\u91CC\u9009\u300C\u5E38\u7528\u8BED\u300D\uFF0C\u4E00\u53E5\u8BDD\u76F4\u63A5\u843D\u5730\u3002",
+                  title: L.cards.phrases,
+                  hint: L.cards.phrasesHint,
                   children: [
                     /* @__PURE__ */ jsx(
                       "div",
@@ -1598,7 +2191,7 @@ function RemoteMicPage() {
                             {
                               ...{ key: "empty" },
                               style: { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "18px 0" },
-                              children: /* @__PURE__ */ jsx(Empty, { children: "\u8FD8\u6CA1\u6709\u5E38\u7528\u8BED\uFF0C\u5728\u4E0B\u9762\u52A0\u4E00\u6761\u3002" })
+                              children: /* @__PURE__ */ jsx(Empty, { children: L.phrases.empty })
                             }
                           )
                         ] : Object.keys(phrases).map((name, i) => /* @__PURE__ */ jsxs(
@@ -1621,7 +2214,7 @@ function RemoteMicPage() {
                                 {
                                   ...{ key: "x" },
                                   type: "button",
-                                  title: "\u5220\u9664\u8FD9\u6761\u5E38\u7528\u8BED",
+                                  title: L.phrases.deleteTitle,
                                   onClick: () => {
                                     const next = { ...phrases };
                                     delete next[name];
@@ -1637,8 +2230,8 @@ function RemoteMicPage() {
                       }
                     ),
                     /* @__PURE__ */ jsxs("div", { ...{ key: "add" }, style: { display: "grid", gridTemplateColumns: "96px minmax(0,1fr) auto", gap: 8, alignItems: "center", marginTop: "auto" }, children: [
-                      /* @__PURE__ */ jsx(TextInput, { ...{ key: "n" }, value: newPhrase.name, placeholder: "\u540D\u79F0", width: "100%", onChange: (v) => setNewPhrase({ ...newPhrase, name: v }) }),
-                      /* @__PURE__ */ jsx(TextInput, { ...{ key: "t" }, value: newPhrase.text, placeholder: "\u63D2\u5165\u7684\u6587\u5B57", width: "100%", onChange: (v) => setNewPhrase({ ...newPhrase, text: v }) }),
+                      /* @__PURE__ */ jsx(TextInput, { ...{ key: "n" }, value: newPhrase.name, placeholder: L.phrases.namePlaceholder, width: "100%", onChange: (v) => setNewPhrase({ ...newPhrase, name: v }) }),
+                      /* @__PURE__ */ jsx(TextInput, { ...{ key: "t" }, value: newPhrase.text, placeholder: L.phrases.textPlaceholder, width: "100%", onChange: (v) => setNewPhrase({ ...newPhrase, text: v }) }),
                       /* @__PURE__ */ jsx(
                         Btn,
                         {
@@ -1649,7 +2242,7 @@ function RemoteMicPage() {
                             patchConfig({ phrases: { ...phrases, [name]: newPhrase.text.trim() } });
                             setNewPhrase({ name: "", text: "" });
                           },
-                          children: "\u6DFB\u52A0"
+                          children: L.page.buttons.add
                         }
                       )
                     ] })
@@ -1663,20 +2256,20 @@ function RemoteMicPage() {
           Card,
           {
             ...{ key: "keys" },
-            title: "\u6309\u952E\u6620\u5C04",
+            title: L.cards.keys,
             action: /* @__PURE__ */ jsx(Toggle, { on: Boolean(values.keysEnabled), onChange: (on) => patchConfig({ keysEnabled: on }) }),
-            hint: profileKeys && profile ? profile.label + "\uFF1A\u8FD9\u53F0\u9065\u63A7\u5668\u7684\u952E\u3002" + (profile.voiceHint ? String(profile.voiceHint) : "") : "\u5355\u51FB / \u53CC\u51FB / \u957F\u6309\u4E09\u79CD\u624B\u52BF\u3002Back\u3001ContextMenu \u4E0E\u5A92\u4F53\u952E\u7531\u84DD\u7259\u6865\u76F4\u63A5\u4E0A\u62A5\uFF1BEnter\u3001Home \u7B49\u952E\u9700\u8981\u6253\u5F00\u4E0B\u9762\u7684\u300C\u6355\u83B7\u952E\u76D8\u300D\u3002\u8FD9\u4E2A\u578B\u53F7\u8FD8\u6CA1\u767B\u8BB0\uFF0C\u628A\u5B83\u7684\u952E\u8868\u52A0\u8FDB " + devicesDir + "/<\u578B\u53F7>.json \u5C31\u4F1A\u81EA\u52A8\u51FA\u73B0\u3002",
+            hint: profileKeys && profile ? fmt(L.keys.hintProfile, { label: profileLabel(profile), hint: profile.voiceHint ? String(profile.voiceHint) : "" }) : fmt(L.keys.hintGeneric, { dir: devicesDir }),
             children: [
-              rowCodes.length === 0 ? /* @__PURE__ */ jsx(Empty, { children: profileKeys ? "\u8FD9\u4E2A\u578B\u53F7\u7684\u952E\u8FD8\u6CA1\u914D\u4EFB\u4F55\u6620\u5C04\uFF08\u97F3\u91CF\u952E\u914D\u4E86\u624D\u663E\u793A\uFF09\u3002\u5728\u4E0B\u9762\u9009\u4E00\u4E2A\u952E\u540D\u6DFB\u52A0\u3002" : "\u8FD8\u6CA1\u6709\u6620\u5C04\u3002\u5728\u4E0B\u9762\u9009\u4E00\u4E2A\u952E\u540D\u6DFB\u52A0\u3002" }) : /* @__PURE__ */ jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }, children: [
+              rowCodes.length === 0 ? /* @__PURE__ */ jsx(Empty, { children: profileKeys ? L.keys.emptyProfile : L.keys.emptyAll }) : /* @__PURE__ */ jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }, children: [
                 /* @__PURE__ */ jsxs(
                   "div",
                   {
                     style: { display: "grid", gridTemplateColumns: "132px repeat(3, minmax(0,1fr)) 30px", gap: 10, padding: "0 6px 4px" },
                     children: [
-                      /* @__PURE__ */ jsx("span", { ...{ key: "k" }, style: TH, children: "\u952E" }),
-                      /* @__PURE__ */ jsx("span", { ...{ key: "s" }, style: TH, children: "\u5355\u51FB" }),
-                      /* @__PURE__ */ jsx("span", { ...{ key: "d" }, style: TH, children: "\u53CC\u51FB" }),
-                      /* @__PURE__ */ jsx("span", { ...{ key: "l" }, style: TH, children: "\u957F\u6309" }),
+                      /* @__PURE__ */ jsx("span", { ...{ key: "k" }, style: TH, children: L.keys.tableKey }),
+                      /* @__PURE__ */ jsx("span", { ...{ key: "s" }, style: TH, children: L.keys.single }),
+                      /* @__PURE__ */ jsx("span", { ...{ key: "d" }, style: TH, children: L.keys.double }),
+                      /* @__PURE__ */ jsx("span", { ...{ key: "l" }, style: TH, children: L.keys.long }),
                       /* @__PURE__ */ jsx("span", { ...{ key: "x" } })
                     ]
                   }
@@ -1693,7 +2286,7 @@ function RemoteMicPage() {
                       {
                         ...{ key },
                         value: actionToValue(binding[name]),
-                        options: placeholder ? [{ value: "", label: "\u9ED8\u8BA4\uFF1A" + placeholder }].concat(options.slice(1)) : options,
+                        options: placeholder ? [{ value: "", label: fmt(L.keys.defaultPrefix, { label: placeholder }) }].concat(options.slice(1)) : options,
                         onChange: (v) => setMap(code, name, v),
                         style: placeholder ? { color: C.fg4 } : void 0
                       }
@@ -1720,12 +2313,12 @@ function RemoteMicPage() {
                             "span",
                             {
                               ...{ key: "u" },
-                              title: "\u8FD9\u4E2A\u952E\u4E0D\u5728\u5F53\u524D\u578B\u53F7\u7684\u952E\u8868\u91CC\uFF1A\u662F\u4F60\u624B\u52A8\u6DFB\u52A0\u7684\uFF0C\u4FDD\u7559\u663E\u793A",
+                              title: L.keys.unknownTitle,
                               style: { fontSize: FS.micro, color: C.fg3, border: BORDER, borderRadius: 999, padding: "0 6px", lineHeight: "15px", whiteSpace: "nowrap" },
-                              children: "\u672A\u77E5"
+                              children: L.keys.unknown
                             }
                           ) : null,
-                          unknown ? /* @__PURE__ */ jsx("span", { ...{ key: "g" }, style: { fontSize: FS.micro, color: C.fg4, lineHeight: "12px", width: "100%" }, children: "\u8BE5\u578B\u53F7\u672A\u4E0A\u62A5" }) : null
+                          unknown ? /* @__PURE__ */ jsx("span", { ...{ key: "g" }, style: { fontSize: FS.micro, color: C.fg4, lineHeight: "12px", width: "100%" }, children: L.keys.notReported }) : null
                         ] }),
                         tapCell("single", "s"),
                         tapCell("double", "d"),
@@ -1735,7 +2328,7 @@ function RemoteMicPage() {
                           {
                             ...{ key: "x" },
                             type: "button",
-                            title: "\u5220\u9664\u8FD9\u6761\u6620\u5C04",
+                            title: L.keys.deleteTitle,
                             onClick: () => {
                               const next = { ...keyMap };
                               delete next[code];
@@ -1757,7 +2350,7 @@ function RemoteMicPage() {
                   {
                     ...{ key: "sel" },
                     value: newCode,
-                    options: [{ value: "", label: "\u9009\u62E9\u952E\u540D\u2026" }].concat(
+                    options: [{ value: "", label: L.keys.selectPlaceholder }].concat(
                       (profileKeys ? profileKeys.filter((code) => !keyMap[code]) : CODE_OPTIONS_HINT).map((code) => ({ value: code, label: code }))
                     ),
                     onChange: setNewCode
@@ -1774,23 +2367,23 @@ function RemoteMicPage() {
                       patchConfig({ keyMap: next });
                       setNewCode("");
                     },
-                    children: "\u6DFB\u52A0\u6620\u5C04"
+                    children: L.keys.addMapping
                   }
                 ),
-                /* @__PURE__ */ jsx("span", { ...{ key: "dbl" }, style: { fontSize: FS.tiny, color: C.fg4 }, children: "\u53CC\u51FB\u7A97\u53E3 " + (snap && snap.keys ? snap.keys.doubleMs : 300) + "ms \xB7 \u957F\u6309 " + (snap && snap.keys ? snap.keys.longMs : 550) + "ms" })
+                /* @__PURE__ */ jsx("span", { ...{ key: "dbl" }, style: { fontSize: FS.tiny, color: C.fg4 }, children: fmt(L.keys.timing, { double: snap && snap.keys ? snap.keys.doubleMs : 300, long: snap && snap.keys ? snap.keys.longMs : 550 }) })
               ] }),
               /* @__PURE__ */ jsxs(Panel, { style: { display: "flex", flexDirection: "column", gap: 6 }, children: [
                 /* @__PURE__ */ jsx(
                   Field,
                   {
                     ...{ key: "filter" },
-                    label: "\u6309\u952E\u5F52\u5C5E",
-                    hint: "\u9ED8\u8BA4\u53EA\u6709\u5F53\u524D\u751F\u6548\u7684\u90A3\u53F0\u7BA1\u4E8B\uFF08\u53E6\u4E00\u53F0\u7684\u6309\u952E\u88AB\u5FFD\u7565\u5E76\u8BB0\u4E00\u6761\u65E5\u5FD7\uFF09\uFF0C\u8DDF\u8BED\u97F3\u952E\u8D70\u540C\u4E00\u53F0\u3002\u97F3\u91CF\u952E\u4E0D\u5728\u6B64\u5217\uFF0C\u59CB\u7EC8\u5F52 macOS\u3002",
+                    label: L.fields.keyFilter,
+                    hint: L.fields.keyFilterHint,
                     children: /* @__PURE__ */ jsx(
                       Select,
                       {
                         value: values.keyFilter || "active",
-                        options: [{ value: "active", label: "\u53EA\u6709\u5F53\u524D\u8BBE\u5907" }, { value: "any", label: "\u4E24\u53F0\u90FD\u8BA4" }],
+                        options: [{ value: "active", label: L.fields.keyFilterActive }, { value: "any", label: L.fields.keyFilterAny }],
                         onChange: (v) => patchConfig({ keyFilter: v })
                       }
                     )
@@ -1800,8 +2393,8 @@ function RemoteMicPage() {
                   Field,
                   {
                     ...{ key: "cap" },
-                    label: "\u6355\u83B7\u952E\u76D8\u6309\u952E",
-                    hint: "\u53EA\u6709\u300C\u6865\u62FF\u4E0D\u5230\u7684\u952E\u300D\u624D\u9700\u8981\u5B83\uFF1A\u6253\u5F00\u540E\u63D2\u4EF6\u6539\u4ECE\u952E\u76D8\u4E8B\u4EF6\u91CC\u8BA4\u952E\uFF0C\u666E\u901A\u952E\u76D8\u7684 Enter / Home \u4E5F\u4F1A\u88AB\u4E00\u8D77\u63A5\u7BA1\u3002" + (profile && Array.isArray(profile.hidKeys) && profile.hidKeys.length ? "\u8FD9\u53F0\u9065\u63A7\u5668\u4E0A\u62A5 " + profile.hidKeys.join(" + ") + "\uFF08\u6865\u76F4\u901A\uFF09\uFF0C\u6620\u5C04\u8FD9\u4E9B\u952E\u4E0D\u7528\u5F00\u3002" : "\u8FD9\u53F0\u9065\u63A7\u5668\u4E0A\u62A5 Back + \u97F3\u91CF\u952E\uFF08\u6865\u76F4\u901A\uFF09\uFF0C\u6620\u5C04\u8FD9\u4E9B\u952E\u4E0D\u7528\u5F00\u3002"),
+                    label: L.fields.capture,
+                    hint: L.fields.captureHint + (profile && Array.isArray(profile.hidKeys) && profile.hidKeys.length ? fmt(L.fields.captureHintHid, { keys: profile.hidKeys.join(" + ") }) : L.fields.captureHintDefault),
                     children: /* @__PURE__ */ jsx(
                       Toggle,
                       {
@@ -1825,14 +2418,14 @@ function RemoteMicPage() {
                 Card,
                 {
                   ...{ key: "audio" },
-                  title: "\u6536\u97F3\u53C2\u6570",
-                  hint: "\u9ED8\u8BA4\u503C\u6765\u81EA DSH \u90A3\u5957\u8C03\u597D\u7684\uFF1A350ms \u65AD\u53E5\u300130s \u4E0A\u9650\u3001200ms \u6390\u5934\u3001100Hz \u9AD8\u901A\u3002\u542C\u4E0D\u6E05\u6216\u5403\u5B57\u65F6\u518D\u52A8\u3002",
+                  title: L.cards.audio,
+                  hint: L.cards.audioHint,
                   children: [
                     /* @__PURE__ */ jsx(
                       Field,
                       {
-                        label: "\u8BC6\u522B\u7CBE\u5EA6",
-                        hint: values.precision === "fp32" ? "fp32 \u6743\u91CD\uFF1A\u66F4\u51C6\uFF0C\u63A8\u7406\u7EA6 +0.3s\uFF1B\u5207\u6362\u540E\u7ACB\u523B\u91CD\u8F7D\u6A21\u578B" : "int8 \u91CF\u5316\u6743\u91CD\uFF1A\u6700\u5FEB\u3001\u5185\u5B58\u6700\u7701",
+                        label: L.fields.precision,
+                        hint: values.precision === "fp32" ? L.fields.precisionFp32 : L.fields.precisionInt8,
                         children: /* @__PURE__ */ jsx(
                           Segmented,
                           {
@@ -1843,11 +2436,11 @@ function RemoteMicPage() {
                         )
                       }
                     ),
-                    /* @__PURE__ */ jsx(Field, { label: "\u65AD\u53E5\u9759\u97F3", hint: "\u9759\u97F3\u591A\u4E45\u7B97\u8BF4\u5B8C\u4E00\u53E5", children: /* @__PURE__ */ jsx(Num, { value: values.gapMs || 350, min: 150, max: 2e3, step: 50, suffix: "ms", onCommit: (v) => patchConfig({ gapMs: v }) }) }),
-                    /* @__PURE__ */ jsx(Field, { label: "\u5355\u6B21\u4E0A\u9650", hint: "\u8D85\u8FC7\u5C31\u5F3A\u5236\u65AD\u53E5", children: /* @__PURE__ */ jsx(Num, { value: values.maxMs || 3e4, min: 3e3, max: 12e4, step: 1e3, suffix: "ms", onCommit: (v) => patchConfig({ maxMs: v }) }) }),
-                    /* @__PURE__ */ jsx(Field, { label: "\u6390\u5934", hint: "\u5207\u6389\u5F00\u5934\u7684\u6309\u952E / \u6C14\u6D41\u566A\u58F0", children: /* @__PURE__ */ jsx(Num, { value: values.trimMs === void 0 ? 200 : values.trimMs, min: 0, max: 800, step: 20, suffix: "ms", onCommit: (v) => patchConfig({ trimMs: v }) }) }),
-                    /* @__PURE__ */ jsx(Field, { label: "\u9AD8\u901A\u6EE4\u6CE2", hint: "\u6EE4\u6389\u4F4E\u9891\u8F70\u9E23", children: /* @__PURE__ */ jsx(Num, { value: values.cutoffHz === void 0 ? 100 : values.cutoffHz, min: 0, max: 400, step: 10, suffix: "Hz", onCommit: (v) => patchConfig({ cutoffHz: v }) }) }),
-                    /* @__PURE__ */ jsx(Field, { label: "\u8BC6\u522B\u8BED\u8A00", hint: "zh / en / ja / ko / yue", children: /* @__PURE__ */ jsx(
+                    /* @__PURE__ */ jsx(Field, { label: L.fields.gap, hint: L.fields.gapHint, children: /* @__PURE__ */ jsx(Num, { value: values.gapMs || 350, min: 150, max: 2e3, step: 50, suffix: "ms", onCommit: (v) => patchConfig({ gapMs: v }) }) }),
+                    /* @__PURE__ */ jsx(Field, { label: L.fields.max, hint: L.fields.maxHint, children: /* @__PURE__ */ jsx(Num, { value: values.maxMs || 3e4, min: 3e3, max: 12e4, step: 1e3, suffix: "ms", onCommit: (v) => patchConfig({ maxMs: v }) }) }),
+                    /* @__PURE__ */ jsx(Field, { label: L.fields.trim, hint: L.fields.trimHint, children: /* @__PURE__ */ jsx(Num, { value: values.trimMs === void 0 ? 200 : values.trimMs, min: 0, max: 800, step: 20, suffix: "ms", onCommit: (v) => patchConfig({ trimMs: v }) }) }),
+                    /* @__PURE__ */ jsx(Field, { label: L.fields.cutoff, hint: L.fields.cutoffHint, children: /* @__PURE__ */ jsx(Num, { value: values.cutoffHz === void 0 ? 100 : values.cutoffHz, min: 0, max: 400, step: 10, suffix: "Hz", onCommit: (v) => patchConfig({ cutoffHz: v }) }) }),
+                    /* @__PURE__ */ jsx(Field, { label: L.fields.language, hint: L.fields.languageHint, children: /* @__PURE__ */ jsx(
                       Select,
                       {
                         value: values.language || "zh",
@@ -1863,8 +2456,8 @@ function RemoteMicPage() {
                 Card,
                 {
                   ...{ key: "history" },
-                  title: "\u8BED\u97F3\u5386\u53F2",
-                  hint: "\u4EC5\u5B58\u672C\u673A\uFF1B\u6253\u5F00\u5F00\u5173\u540E\u624D\u5199\u5165\u3002",
+                  title: L.cards.history,
+                  hint: L.cards.historyHint,
                   action: /* @__PURE__ */ jsxs("div", { style: { display: "flex", gap: 6 }, children: [
                     /* @__PURE__ */ jsx(Toggle, { ...{ key: "t" }, on: Boolean(values.history), onChange: (on) => patchConfig({ history: on }) }),
                     /* @__PURE__ */ jsx(
@@ -1877,10 +2470,10 @@ function RemoteMicPage() {
                             const payload = await api("/history?limit=50");
                             setHistory(payload && payload.entries || []);
                           } catch (error) {
-                            toast("\u8BFB\u53D6\u5386\u53F2\u5931\u8D25\uFF1A" + errText(error), "error");
+                            toast(fmt(L.history.loadFailed, { error: errText(error) }), "error");
                           }
                         },
-                        children: "\u8F7D\u5165"
+                        children: L.page.buttons.load
                       }
                     ),
                     history ? /* @__PURE__ */ jsx(
@@ -1893,10 +2486,10 @@ function RemoteMicPage() {
                             await api("/history", { method: "DELETE" });
                             setHistory([]);
                           } catch (error) {
-                            toast("\u6E05\u7A7A\u5931\u8D25\uFF1A" + errText(error), "error");
+                            toast(fmt(L.history.clearFailed, { error: errText(error) }), "error");
                           }
                         },
-                        children: "\u6E05\u7A7A"
+                        children: L.page.buttons.clear
                       }
                     ) : null
                   ] }),
@@ -1904,7 +2497,7 @@ function RemoteMicPage() {
                     const rows = history || store.transcripts;
                     const sliced = rows.slice(0, history ? 50 : 8);
                     if (!sliced.length) {
-                      return /* @__PURE__ */ jsx("div", { style: { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px 0" }, children: /* @__PURE__ */ jsx(Empty, { children: values.history ? "\u8FD8\u6CA1\u6709\u843D\u76D8\u8BB0\u5F55\u3002" : "\u5386\u53F2\u8BB0\u5F55\u5DF2\u5173\u95ED\uFF0C\u8BC6\u522B\u7ED3\u679C\u4E0D\u843D\u76D8\uFF08\u4E0A\u9762\u7684\u5F00\u5173\u6253\u5F00\u540E\u624D\u4F1A\u5199\u5165\uFF09\u3002" }) });
+                      return /* @__PURE__ */ jsx("div", { style: { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px 0" }, children: /* @__PURE__ */ jsx(Empty, { children: values.history ? L.history.emptyEnabled : L.history.emptyDisabled }) });
                     }
                     return /* @__PURE__ */ jsx(
                       "div",
@@ -1952,7 +2545,7 @@ function RemoteMicPage() {
           Card,
           {
             ...{ key: "logs" },
-            title: "\u5B88\u62A4\u8FDB\u7A0B\u65E5\u5FD7",
+            title: L.cards.logs,
             dense: true,
             action: /* @__PURE__ */ jsx(
               Btn,
@@ -1963,10 +2556,10 @@ function RemoteMicPage() {
                     const payload = await api("/logs?lines=60");
                     setLogs(payload && payload.logs || []);
                   } catch (error) {
-                    toast("\u8BFB\u53D6\u65E5\u5FD7\u5931\u8D25\uFF1A" + errText(error), "error");
+                    toast(fmt(L.logs.loadFailed, { error: errText(error) }), "error");
                   }
                 },
-                children: "\u5237\u65B0"
+                children: L.page.buttons.refresh
               }
             ),
             children: /* @__PURE__ */ jsx(
@@ -1988,7 +2581,7 @@ function RemoteMicPage() {
                   whiteSpace: "pre-wrap",
                   wordBreak: "break-all"
                 },
-                children: logs ? logs.join("\n") : snap && snap.logs ? snap.logs.join("\n") : "\uFF08\u70B9\u53F3\u4E0A\u89D2\u5237\u65B0\u8BFB\u53D6\u6700\u8FD1 60 \u884C\uFF09"
+                children: logs ? logs.join("\n") : snap && snap.logs ? snap.logs.join("\n") : L.logs.empty
               }
             )
           }
@@ -1997,20 +2590,24 @@ function RemoteMicPage() {
     }
   );
 }
-var plugin_default = {
+var plugin = {
   id: ID,
-  name: "\u6307\u6325",
-  description: "\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668\uFF1A\u8BF4\u8BDD\u5373\u63D2\u5165\u672C\u5730\u8BC6\u522B\u7684\u6587\u5B57\uFF0C\u6309\u952E\u53EF\u6620\u5C04\u4E3A\u63D0\u4EA4/\u505C\u6B62/\u65B0\u5EFA\u4F1A\u8BDD/\u5E38\u7528\u8BED\uFF0C\u652F\u6301\u591A\u578B\u53F7",
+  // Provisional: the module body runs before prefs are readable, so `register()` refreshes these
+  // two from the resolved locale below.
+  name: L.plugin.name,
+  description: L.plugin.description,
   register(ctx) {
     CTX = ctx;
     REST = (path, options) => ctx.rest(path, options);
     readPrefs();
+    plugin.name = L.plugin.name;
+    plugin.description = L.plugin.description;
     applyRuntimeConfig(store.snap);
-    ctx.register({ id: "nav", area: "sidebar.nav", data: { codicon: "mic", label: "\u6307\u6325", path: ROUTE } });
+    ctx.register({ id: "nav", area: "sidebar.nav", data: { codicon: "mic", label: L.nav.title, path: ROUTE } });
     ctx.register({
       id: "page",
       area: "routes",
-      title: "\u6307\u6325",
+      title: L.plugin.name,
       data: { path: ROUTE },
       render: () => /* @__PURE__ */ jsx(RemoteMicPage, {})
     });
@@ -2020,8 +2617,8 @@ var plugin_default = {
       order: 235,
       data: {
         id: "baton.open",
-        label: "\u6307\u6325",
-        keywords: ["mic", "voice", "dictation", "remote", "\u8BED\u97F3", "\u9EA6\u514B\u98CE", "\u9065\u63A7\u5668", "\u542C\u5199"],
+        label: L.palette.title,
+        keywords: L.palette.keywords,
         run: () => host.navigate(ROUTE)
       }
     });
@@ -2041,6 +2638,9 @@ var plugin_default = {
     }
   }
 };
+var plugin_default = plugin;
 export {
-  plugin_default as default
+  plugin_default as default,
+  enMessages,
+  zhMessages
 };

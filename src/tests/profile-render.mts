@@ -1,18 +1,23 @@
-// Profile render eval: 按「当前生效的遥控器型号」渲染按键映射表。
-// 用真实设备表（sidecar/devices/*.json 的 /state 形态）喂 render，断言：
-//   1) xiaomi 下键行只有 Back（音量键配了才显示）+ 手动加过的键（未知/该型号未上报，灰显），
-//      历史遗留的 Enter / InputSource（旧版本写进 settings 的 Chromecast 默认）一律不显示；
-//   2) chromecast 下出现该型号 keys 的并集（Enter/Back/InputSource/方向/Home 等）；
-//   3) 切换 profileId 后同一个 render 刷新出新键行，不需要重新注册；
-//   4) defaultKeyMap 只做灰字占位（「默认：X」），绝不写进 keyMap（渲染零 /config 调用）；
-//   5) profileId=null 降级：老的全量按键表 + 「还没登记」提示（含 devicesDir）。
+// Profile render eval: renders the key-mapping table for the "active remote model".
+// Feeds the real device table (the /state shape of sidecar/devices/*.json) into render and asserts:
+//   1) under xiaomi only Back shows (volume keys only when configured) plus manually added keys
+//      (unknown / not-reported-by-this-model, greyed out); legacy Enter / InputSource entries
+//      (Chromecast defaults written into settings by older versions) never show;
+//   2) under chromecast the union of that model's keys appears (Enter/Back/InputSource/arrows/Home…);
+//   3) after switching profileId the same render refreshes to the new rows without re-registering;
+//   4) defaultKeyMap only produces grey placeholders ("Default: X") and is never written into keyMap
+//      (rendering performs zero /config calls);
+//   5) profileId=null degrades to the legacy full key table plus the "not registered" hint (with devicesDir).
+//
+// UI copy is never hardcoded here: the built bundle exports the catalogues as `zhMessages` / `enMessages`,
+// so every expected string is derived from the same source the renderer uses.
 import { copyFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
-// 仓库构建产物（src/desktop/plugin.tsx → desktop/plugin.js），不是已安装副本。
+// Repository build product (src/desktop/plugin.tsx → desktop/plugin.js), not the installed copy.
 const SOURCE = process.env.PLUGIN_JS || path.resolve(here, '../desktop/plugin.js')
 let bootCount = 0
 
@@ -22,38 +27,43 @@ g['window'] = globalThis
 g['document'] = { visibilityState: 'visible' }
 g['__focused'] = 'sess-42'
 
+/** Message catalogue tree, as exported by the bundle (shape mirrors `Messages`). */
+type Catalog = Record<string, any>
+
 const CHROMECAST_KEYS = ['Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'YouTube', 'Netflix', 'InputSource', 'Power', 'Back', 'AudioVolumeUp', 'AudioVolumeDown', 'AudioVolumeMute']
 const XIAOMI_KEYS = ['Back', 'AudioVolumeUp', 'AudioVolumeDown', 'AudioVolumeMute']
+const PHRASE_NAME = 'ack'
 const REAL_KEYMAP: Record<string, unknown> = {
   Enter: { single: 'submit', double: 'new-session', long: 'swallow' },
-  Back: { single: 'stop', double: { action: 'phrase', name: '收到' } },
+  Back: { single: 'stop', double: { action: 'phrase', name: PHRASE_NAME } },
   InputSource: { single: 'new-session' }
 }
 const DEVICES_DIR = '/Users/1maker/.hermes/baton/devices'
 
+// Backend labels are ASCII now; the renderer maps them through `deviceLabels`.
 const chromecast = {
   id: 'chromecast-google-tv',
-  label: 'Chromecast with Google TV 遥控器',
+  label: 'Chromecast Remote',
   vendor: 'Google',
   keys: CHROMECAST_KEYS,
   hidKeys: ['Enter', 'Back', 'Home', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'InputSource', 'Power', 'Netflix', 'YouTube', 'AudioVolumeUp', 'AudioVolumeDown', 'AudioVolumeMute'],
   defaultKeyMap: {
     Enter: { single: 'submit', double: 'new-session', long: 'swallow' },
-    Back: { single: 'stop', double: { action: 'phrase', name: '收到' } },
+    Back: { single: 'stop', double: { action: 'phrase', name: PHRASE_NAME } },
     InputSource: { single: 'new-session' }
   },
-  voiceHint: '按住语音键（麦克风图标）说话，松手出字'
+  voiceHint: 'Hold the voice key (microphone icon), speak, then release.'
 }
 const xiaomi = {
   id: 'xiaomi-bt-remote-2',
-  label: '小米蓝牙语音遥控器 2 / 2 Pro',
+  label: 'Xiaomi BT Remote 2',
   vendor: 'Xiaomi',
   keys: XIAOMI_KEYS,
   hidKeys: ['Back', 'AudioVolumeUp', 'AudioVolumeDown', 'AudioVolumeMute'],
   defaultKeyMap: {
-    Back: { single: 'stop', double: { action: 'phrase', name: '收到' } }
+    Back: { single: 'stop', double: { action: 'phrase', name: PHRASE_NAME } }
   },
-  voiceHint: '按住中键（语音键）说话，松手出字'
+  voiceHint: 'Hold the centre (voice) key, speak, then release.'
 }
 
 interface RenderState {
@@ -94,7 +104,7 @@ function makeState(keyMap: Record<string, unknown>, profileId: string | null): R
     uptimeMs: 1000,
     state: 'ready',
     detail: null,
-    device: { id: 'dev', name: '小米蓝牙语音遥控器' },
+    device: { id: 'dev', name: 'Xiaomi BT Remote 2' },
     battery: 80,
     diagnostics: { frames: 0, sessions: 0, battery: 80 },
     transcriber: { kind: 'sensevoice', language: 'zh', model: '/m/model.int8.onnx', ready: true },
@@ -103,7 +113,7 @@ function makeState(keyMap: Record<string, unknown>, profileId: string | null): R
     audio: { gapMs: 350, maxMs: 30000, trimMs: 200, cutoffHz: 100 },
     autoSend: false,
     history: { enabled: false, limit: 500, count: 0 },
-    phrases: { 收到: '收到，我看一下。' },
+    phrases: { [PHRASE_NAME]: 'Acknowledged, looking into it.' },
     config: { autoSend: false, autoStart: true, autoRestart: true, keysEnabled: true, history: false, language: 'zh', gapMs: 350 },
     head: 0,
     bootAt: 1,
@@ -126,20 +136,25 @@ interface Booted {
   storageLog: Array<{ k: string; v: unknown }>
   render: () => unknown
   dispose: () => void
+  zh: Catalog
+  en: Catalog
 }
 
 /** Dynamic import that TS cannot resolve at compile time (the file is a build product). */
 const importFresh = new Function('specifier', 'return import(specifier)') as unknown as
   (specifier: string) => Promise<Record<string, unknown>>
 
-// 每个 phase 一个独立的插件模块实例（cache-bust import）+ 自己的 state/ctx/偏好种子。
+// One independent plugin module instance per phase (cache-bust import) + its own state/ctx/pref seed.
+// `prefs.locale` is seeded to 'zh' so the assertions read the catalogue the renderer actually picked.
 async function boot(seedUserKeys: string[], keyMap: Record<string, unknown>, profileId: string | null): Promise<Booted> {
   bootCount += 1
   copyFileSync(SOURCE, new URL('./plugin.js', import.meta.url))
   const mod = await importFresh(`./plugin.js?t=eval${bootCount}-${Date.now()}`)
   const plugin = mod['default'] as { register(ctx: unknown): void }
+  const zh = mod['zhMessages'] as Catalog
+  const en = mod['enMessages'] as Catalog
   const state = makeState(keyMap, profileId)
-  const configLog: string[] = [] // 渲染期间绝不允许出现 /config 写入
+  const configLog: string[] = [] // no /config writes are allowed while rendering
   const storageLog: Array<{ k: string; v: unknown }> = []
   const registered: Contribution[] = []
   const disposers: Array<() => void> = []
@@ -158,7 +173,7 @@ async function boot(seedUserKeys: string[], keyMap: Record<string, unknown>, pro
     setInterval: (fn: () => void, ms: number) => setInterval(fn, ms),
     addEventListener: () => () => {},
     storage: {
-      get: (k: string, d: unknown) => (k === 'prefs' ? { ...(d as Record<string, unknown>), capture: true, userKeys: seedUserKeys } : d),
+      get: (k: string, d: unknown) => (k === 'prefs' ? { ...(d as Record<string, unknown>), capture: true, userKeys: seedUserKeys, locale: 'zh' } : d),
       set: (k: string, v: unknown) => { storageLog.push({ k, v }) },
       remove: () => {}
     },
@@ -178,12 +193,14 @@ async function boot(seedUserKeys: string[], keyMap: Record<string, unknown>, pro
     configLog,
     storageLog,
     render,
-    dispose: () => disposers.forEach(fn => { try { fn() } catch {} })
+    dispose: () => disposers.forEach(fn => { try { fn() } catch {} }),
+    zh,
+    en
   }
 }
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
-const REFRESH = 2200 // 快照每 4 拍（400ms/拍）刷新一次，留足余量
+const REFRESH = 2200 // the snapshot refreshes every 4th tick (400ms/tick); generous margin
 
 /** A rendered element: anything with `props` (and optionally a function `type`). */
 type Node = Record<string, unknown>
@@ -263,6 +280,25 @@ const firstOptionLabel = (p: Record<string, unknown> | null): unknown => prop(op
 /** `style.opacity` of a row (grayed-out manual keys use 0.72). */
 const opacityOf = (node: Node | null): unknown => prop(prop(propsOf(node), 'style'), 'opacity')
 
+/** Fill `{name}` placeholders of a catalogue template (same rule as the renderer's `fmt`). */
+const fill = (template: string, vars: Record<string, string>): string =>
+  template.replace(/\{(\w+)\}/g, (whole, key) => (key in vars ? vars[key] : whole))
+
+/** Device display label exactly as the renderer resolves it: catalogue first, backend label second. */
+const deviceLabel = (L: Catalog, profile: { id: string; label: string }): string =>
+  (L.deviceLabels && L.deviceLabels[profile.id]) || profile.label
+
+/** Sorted (key, leaf) paths of a catalogue tree; arrays count as leaves. */
+function keyPaths(value: unknown, prefix = ''): string[] {
+  if (Array.isArray(value)) return [prefix]
+  if (!value || typeof value !== 'object') return [prefix]
+  const out: string[] = []
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    out.push(...keyPaths((value as Record<string, unknown>)[key], prefix ? prefix + '.' + key : key))
+  }
+  return out
+}
+
 let fails = 0
 let checks = 0
 function check(name: string, ok: boolean, detail?: unknown) {
@@ -271,23 +307,32 @@ function check(name: string, ok: boolean, detail?: unknown) {
   console.log(name, ok ? 'PASS' : 'FAIL', ok ? '' : JSON.stringify(detail))
 }
 
-/* ── Phase A：真实 settings 的 keyMap（Enter/Back/InputSource），偏好里没有手动键 ── */
+/* ── Phase A: the real settings keyMap (Enter/Back/InputSource), no manual keys in prefs ── */
 {
   const app = await boot([], { ...REAL_KEYMAP }, 'chromecast-google-tv')
+  const L = app.zh
+  const ccLabel = deviceLabel(L, chromecast)
   await wait(120)
   let tree = app.render()
 
-  // A1) chromecast：该型号 keys 的并集（未配的音量键按「若用户配了」不显示）
+  // A0) the en bundle must mirror the zh key shape exactly (same groups, same leaf paths)
+  const zhPaths = keyPaths(app.zh)
+  const enPaths = keyPaths(app.en)
+  check('A0 EN/ZH KEY SHAPE', JSON.stringify(zhPaths) === JSON.stringify(enPaths),
+    { onlyZh: zhPaths.filter(p => !enPaths.includes(p)), onlyEn: enPaths.filter(p => !zhPaths.includes(p)) })
+
+  // A1) chromecast: the union of that model's keys (unconfigured volume keys stay hidden)
   const wantCC = ['Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'YouTube', 'Netflix', 'InputSource', 'Power', 'Back']
   check('A1 CHROMECAST ROWS', JSON.stringify(rowCodes(tree)) === JSON.stringify(wantCC), rowCodes(tree))
 
-  // A2) 设备卡型号 label + voiceHint；按键映射 hint 含型号名 +「这台遥控器的键」
+  // A2) device card model label + voiceHint; key-mapping hint carries the model name and its voiceHint
   const t = texts(tree)
-  check('A2 MODEL LABEL', t.some(x => x.includes('Chromecast with Google TV 遥控器')), t.filter(x => x.includes('Chromecast')))
-  check('A2 VOICE HINT', t.some(x => x.includes('按住语音键（麦克风图标）说话')), t.filter(x => x.includes('语音')))
-  check('A2 KEYS HINT', t.some(x => x.includes('这台遥控器的键')), null)
+  check('A2 MODEL LABEL', t.some(x => x.includes(ccLabel)), t.filter(x => x.includes('Chromecast')))
+  check('A2 VOICE HINT', t.some(x => x.includes(chromecast.voiceHint)), t.filter(x => x.includes('voice key')))
+  const keysHint = fill(L.keys.hintProfile, { label: ccLabel, hint: chromecast.voiceHint })
+  check('A2 KEYS HINT', t.some(x => x.includes(keysHint)), null)
 
-  // A3) 切到小米（同一 render 刷新）：只剩 Back；Enter / InputSource 一律不出现
+  // A3) switch to xiaomi (same render refreshes): only Back remains; Enter / InputSource never appear
   app.state.profileId = 'xiaomi-bt-remote-2'
   await wait(REFRESH)
   tree = app.render()
@@ -295,68 +340,70 @@ function check(name: string, ok: boolean, detail?: unknown) {
   check('A3 XIAOMI ROWS ONLY BACK', JSON.stringify(xmRows) === JSON.stringify(['Back']), xmRows)
   check('A3 NO ENTER/SOURCE', !xmRows.includes('Enter') && !xmRows.includes('InputSource'), xmRows)
 
-  // A4) 音量键「若用户配了」：配上 AudioVolumeUp 才出行
+  // A4) volume keys are "shown when configured": only after AudioVolumeUp is mapped
   app.state.keys.map = { ...REAL_KEYMAP, AudioVolumeUp: { single: 'focus' } }
   await wait(REFRESH)
   tree = app.render()
   check('A4 VOLUME WHEN CONFIGURED', JSON.stringify(rowCodes(tree)) === JSON.stringify(['Back', 'AudioVolumeUp']), rowCodes(tree))
 
-  // A5) profileId=null 降级：老的全量表 + 「还没登记」提示（含 devicesDir）
+  // A5) profileId=null degrades to the legacy full table plus the "not registered" hint (with devicesDir)
   app.state.profileId = null
   await wait(REFRESH)
   tree = app.render()
   check('A5 LEGACY FULL TABLE', JSON.stringify(rowCodes(tree)) === JSON.stringify(['AudioVolumeUp', 'Back', 'Enter', 'InputSource']), rowCodes(tree))
   const t5 = texts(tree)
-  check('A5 REGISTER HINT', t5.some(x => x.includes('还没登记') && x.includes(DEVICES_DIR)), t5.filter(x => x.includes('登记')))
+  const registerHint = fill(L.page.registerHint, { dir: DEVICES_DIR })
+  check('A5 REGISTER HINT', t5.some(x => x.includes(registerHint)), t5.filter(x => x.includes(DEVICES_DIR)))
 
-  // A6) defaultKeyMap 灰字占位（默认：X），不写进 keyMap
+  // A6) defaultKeyMap only yields grey placeholders ("Default: X"); keyMap stays empty
   app.state.profileId = 'chromecast-google-tv'
   app.state.keys.map = {}
   await wait(REFRESH)
   tree = app.render()
   const enterRow = findRow(tree, 'Enter')
   const sel = (i: number) => cellProps(enterRow, i)
-  check('A6 PLACEHOLDER SINGLE', firstOptionLabel(sel(1)) === '默认：提交', optionsOf(sel(1))[0])
-  check('A6 PLACEHOLDER DOUBLE', firstOptionLabel(sel(2)) === '默认：新会话', optionsOf(sel(2))[0])
-  check('A6 PLACEHOLDER LONG', firstOptionLabel(sel(3)) === '默认：吞掉', optionsOf(sel(3))[0])
+  check('A6 PLACEHOLDER SINGLE', firstOptionLabel(sel(1)) === fill(L.keys.defaultPrefix, { label: L.actions.submit }), optionsOf(sel(1))[0])
+  check('A6 PLACEHOLDER DOUBLE', firstOptionLabel(sel(2)) === fill(L.keys.defaultPrefix, { label: L.actions.newSession }), optionsOf(sel(2))[0])
+  check('A6 PLACEHOLDER LONG', firstOptionLabel(sel(3)) === fill(L.keys.defaultPrefix, { label: L.actions.swallow }), optionsOf(sel(3))[0])
   check('A6 PLACEHOLDER GRAY', prop(prop(sel(1), 'style'), 'color') === 'var(--ui-text-quaternary)', prop(sel(1), 'style'))
   const backRow = findRow(tree, 'Back')
-  check('A6 PHRASE PLACEHOLDER', firstOptionLabel(cellProps(backRow, 2)) === '默认：常用语「收到」', optionsOf(cellProps(backRow, 2))[0])
+  check('A6 PHRASE PLACEHOLDER', firstOptionLabel(cellProps(backRow, 2)) === fill(L.keys.defaultPrefix, { label: fill(L.actions.phraseQuoted, { name: PHRASE_NAME }) }), optionsOf(cellProps(backRow, 2))[0])
 
-  // A7) 「添加映射」下拉 = 当前型号 keys 里还没映射的那些
+  // A7) "add mapping" select lists the keys of the current model that are not mapped yet
   const addSel = findKeyed(tree, 'sel')
   const addValues = [''].concat(CHROMECAST_KEYS)
   check('A7 ADD OPTIONS', addSel !== null && JSON.stringify(optionsOf(propsOf(addSel)).map(o => prop(o, 'value'))) === JSON.stringify(addValues), optionsOf(propsOf(addSel)).map(o => prop(o, 'value')))
 
-  // A8) 渲染零写入：defaultKeyMap 没被写进 keyMap
+  // A8) rendering writes nothing: defaultKeyMap never lands in keyMap
   check('A8 NO CONFIG WRITES', app.configLog.length === 0, app.configLog)
   check('A8 KEYMAP UNTOUCHED', JSON.stringify(app.state.keys.map) === '{}', app.state.keys.map)
 
   app.dispose()
 }
 
-/* ── Phase B：手动加过的键（prefs.userKeys 留痕）→ 未知/该型号未上报，灰显 ───── */
+/* ── Phase B: manually added keys (traced in prefs.userKeys) → unknown / not reported, greyed ── */
 {
   const app = await boot(['Menu'], { ...REAL_KEYMAP, Menu: { single: 'focus' } }, 'chromecast-google-tv')
+  const L = app.zh
   await wait(120)
   let tree = app.render()
 
-  // B1) chromecast：型号键 + 尾部手动键 Menu
+  // B1) chromecast: model keys plus the manual key Menu at the tail
   const want = CHROMECAST_KEYS.slice(0, 11).concat(['Menu'])
   check('B1 CC ROWS WITH MANUAL KEY', JSON.stringify(rowCodes(tree)) === JSON.stringify(want), rowCodes(tree))
   const menuRow = findRow(tree, 'Menu')
   const menuTexts = menuRow ? texts(menuRow) : []
-  check('B1 UNKNOWN TAG', menuTexts.includes('未知') && menuTexts.includes('该型号未上报'), menuTexts)
+  check('B1 UNKNOWN TAG', menuTexts.includes(L.keys.unknown) && menuTexts.includes(L.keys.notReported), menuTexts)
   check('B1 GRAYED', opacityOf(menuRow) === 0.72, prop(propsOf(menuRow), 'style'))
 
-  // B2) 小米下：Back + 手动键 Menu；Enter/InputSource（历史遗留）仍隐藏
+  // B2) under xiaomi: Back plus the manual key Menu; legacy Enter/InputSource stay hidden
   app.state.profileId = 'xiaomi-bt-remote-2'
   await wait(REFRESH)
   tree = app.render()
   const xmRows = rowCodes(tree)
   check('B2 XIAOMI ROWS', JSON.stringify(xmRows) === JSON.stringify(['Back', 'Menu']), xmRows)
 
-  // B3) 删行清留痕：× → /config 写入（用户动作，允许）且 prefs.userKeys 移除
+  // B3) deleting a row clears its trace: × → /config write (a user action, allowed) and prefs.userKeys loses it
   const menuRow2 = findRow(tree, 'Menu')
   const delBtn = menuRow2 ? cellsOf(menuRow2)[4] : undefined
   const onClick = prop(propsOf(delBtn), 'onClick')

@@ -11,35 +11,36 @@ g["document"] = { visibilityState: "visible" };
 g["__focused"] = "sess-42";
 const CHROMECAST_KEYS = ["Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "YouTube", "Netflix", "InputSource", "Power", "Back", "AudioVolumeUp", "AudioVolumeDown", "AudioVolumeMute"];
 const XIAOMI_KEYS = ["Back", "AudioVolumeUp", "AudioVolumeDown", "AudioVolumeMute"];
+const PHRASE_NAME = "ack";
 const REAL_KEYMAP = {
   Enter: { single: "submit", double: "new-session", long: "swallow" },
-  Back: { single: "stop", double: { action: "phrase", name: "\u6536\u5230" } },
+  Back: { single: "stop", double: { action: "phrase", name: PHRASE_NAME } },
   InputSource: { single: "new-session" }
 };
 const DEVICES_DIR = "/Users/1maker/.hermes/baton/devices";
 const chromecast = {
   id: "chromecast-google-tv",
-  label: "Chromecast with Google TV \u9065\u63A7\u5668",
+  label: "Chromecast Remote",
   vendor: "Google",
   keys: CHROMECAST_KEYS,
   hidKeys: ["Enter", "Back", "Home", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "InputSource", "Power", "Netflix", "YouTube", "AudioVolumeUp", "AudioVolumeDown", "AudioVolumeMute"],
   defaultKeyMap: {
     Enter: { single: "submit", double: "new-session", long: "swallow" },
-    Back: { single: "stop", double: { action: "phrase", name: "\u6536\u5230" } },
+    Back: { single: "stop", double: { action: "phrase", name: PHRASE_NAME } },
     InputSource: { single: "new-session" }
   },
-  voiceHint: "\u6309\u4F4F\u8BED\u97F3\u952E\uFF08\u9EA6\u514B\u98CE\u56FE\u6807\uFF09\u8BF4\u8BDD\uFF0C\u677E\u624B\u51FA\u5B57"
+  voiceHint: "Hold the voice key (microphone icon), speak, then release."
 };
 const xiaomi = {
   id: "xiaomi-bt-remote-2",
-  label: "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668 2 / 2 Pro",
+  label: "Xiaomi BT Remote 2",
   vendor: "Xiaomi",
   keys: XIAOMI_KEYS,
   hidKeys: ["Back", "AudioVolumeUp", "AudioVolumeDown", "AudioVolumeMute"],
   defaultKeyMap: {
-    Back: { single: "stop", double: { action: "phrase", name: "\u6536\u5230" } }
+    Back: { single: "stop", double: { action: "phrase", name: PHRASE_NAME } }
   },
-  voiceHint: "\u6309\u4F4F\u4E2D\u952E\uFF08\u8BED\u97F3\u952E\uFF09\u8BF4\u8BDD\uFF0C\u677E\u624B\u51FA\u5B57"
+  voiceHint: "Hold the centre (voice) key, speak, then release."
 };
 function makeState(keyMap, profileId) {
   return {
@@ -48,7 +49,7 @@ function makeState(keyMap, profileId) {
     uptimeMs: 1e3,
     state: "ready",
     detail: null,
-    device: { id: "dev", name: "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668" },
+    device: { id: "dev", name: "Xiaomi BT Remote 2" },
     battery: 80,
     diagnostics: { frames: 0, sessions: 0, battery: 80 },
     transcriber: { kind: "sensevoice", language: "zh", model: "/m/model.int8.onnx", ready: true },
@@ -57,7 +58,7 @@ function makeState(keyMap, profileId) {
     audio: { gapMs: 350, maxMs: 3e4, trimMs: 200, cutoffHz: 100 },
     autoSend: false,
     history: { enabled: false, limit: 500, count: 0 },
-    phrases: { \u6536\u5230: "\u6536\u5230\uFF0C\u6211\u770B\u4E00\u4E0B\u3002" },
+    phrases: { [PHRASE_NAME]: "Acknowledged, looking into it." },
     config: { autoSend: false, autoStart: true, autoRestart: true, keysEnabled: true, history: false, language: "zh", gapMs: 350 },
     head: 0,
     bootAt: 1,
@@ -73,6 +74,8 @@ async function boot(seedUserKeys, keyMap, profileId) {
   copyFileSync(SOURCE, new URL("./plugin.js", import.meta.url));
   const mod = await importFresh(`./plugin.js?t=eval${bootCount}-${Date.now()}`);
   const plugin = mod["default"];
+  const zh = mod["zhMessages"];
+  const en = mod["enMessages"];
   const state = makeState(keyMap, profileId);
   const configLog = [];
   const storageLog = [];
@@ -103,7 +106,7 @@ async function boot(seedUserKeys, keyMap, profileId) {
     addEventListener: () => () => {
     },
     storage: {
-      get: (k, d) => k === "prefs" ? { ...d, capture: true, userKeys: seedUserKeys } : d,
+      get: (k, d) => k === "prefs" ? { ...d, capture: true, userKeys: seedUserKeys, locale: "zh" } : d,
       set: (k, v) => {
         storageLog.push({ k, v });
       },
@@ -132,7 +135,9 @@ async function boot(seedUserKeys, keyMap, profileId) {
         fn();
       } catch {
       }
-    })
+    }),
+    zh,
+    en
   };
 }
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -205,6 +210,17 @@ const optionsOf = (p) => {
 };
 const firstOptionLabel = (p) => prop(optionsOf(p)[0], "label");
 const opacityOf = (node) => prop(prop(propsOf(node), "style"), "opacity");
+const fill = (template, vars) => template.replace(/\{(\w+)\}/g, (whole, key) => key in vars ? vars[key] : whole);
+const deviceLabel = (L, profile) => L.deviceLabels && L.deviceLabels[profile.id] || profile.label;
+function keyPaths(value, prefix = "") {
+  if (Array.isArray(value)) return [prefix];
+  if (!value || typeof value !== "object") return [prefix];
+  const out = [];
+  for (const key of Object.keys(value).sort()) {
+    out.push(...keyPaths(value[key], prefix ? prefix + "." + key : key));
+  }
+  return out;
+}
 let fails = 0;
 let checks = 0;
 function check(name, ok, detail) {
@@ -214,14 +230,24 @@ function check(name, ok, detail) {
 }
 {
   const app = await boot([], { ...REAL_KEYMAP }, "chromecast-google-tv");
+  const L = app.zh;
+  const ccLabel = deviceLabel(L, chromecast);
   await wait(120);
   let tree = app.render();
+  const zhPaths = keyPaths(app.zh);
+  const enPaths = keyPaths(app.en);
+  check(
+    "A0 EN/ZH KEY SHAPE",
+    JSON.stringify(zhPaths) === JSON.stringify(enPaths),
+    { onlyZh: zhPaths.filter((p) => !enPaths.includes(p)), onlyEn: enPaths.filter((p) => !zhPaths.includes(p)) }
+  );
   const wantCC = ["Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "YouTube", "Netflix", "InputSource", "Power", "Back"];
   check("A1 CHROMECAST ROWS", JSON.stringify(rowCodes(tree)) === JSON.stringify(wantCC), rowCodes(tree));
   const t = texts(tree);
-  check("A2 MODEL LABEL", t.some((x) => x.includes("Chromecast with Google TV \u9065\u63A7\u5668")), t.filter((x) => x.includes("Chromecast")));
-  check("A2 VOICE HINT", t.some((x) => x.includes("\u6309\u4F4F\u8BED\u97F3\u952E\uFF08\u9EA6\u514B\u98CE\u56FE\u6807\uFF09\u8BF4\u8BDD")), t.filter((x) => x.includes("\u8BED\u97F3")));
-  check("A2 KEYS HINT", t.some((x) => x.includes("\u8FD9\u53F0\u9065\u63A7\u5668\u7684\u952E")), null);
+  check("A2 MODEL LABEL", t.some((x) => x.includes(ccLabel)), t.filter((x) => x.includes("Chromecast")));
+  check("A2 VOICE HINT", t.some((x) => x.includes(chromecast.voiceHint)), t.filter((x) => x.includes("voice key")));
+  const keysHint = fill(L.keys.hintProfile, { label: ccLabel, hint: chromecast.voiceHint });
+  check("A2 KEYS HINT", t.some((x) => x.includes(keysHint)), null);
   app.state.profileId = "xiaomi-bt-remote-2";
   await wait(REFRESH);
   tree = app.render();
@@ -237,19 +263,20 @@ function check(name, ok, detail) {
   tree = app.render();
   check("A5 LEGACY FULL TABLE", JSON.stringify(rowCodes(tree)) === JSON.stringify(["AudioVolumeUp", "Back", "Enter", "InputSource"]), rowCodes(tree));
   const t5 = texts(tree);
-  check("A5 REGISTER HINT", t5.some((x) => x.includes("\u8FD8\u6CA1\u767B\u8BB0") && x.includes(DEVICES_DIR)), t5.filter((x) => x.includes("\u767B\u8BB0")));
+  const registerHint = fill(L.page.registerHint, { dir: DEVICES_DIR });
+  check("A5 REGISTER HINT", t5.some((x) => x.includes(registerHint)), t5.filter((x) => x.includes(DEVICES_DIR)));
   app.state.profileId = "chromecast-google-tv";
   app.state.keys.map = {};
   await wait(REFRESH);
   tree = app.render();
   const enterRow = findRow(tree, "Enter");
   const sel = (i) => cellProps(enterRow, i);
-  check("A6 PLACEHOLDER SINGLE", firstOptionLabel(sel(1)) === "\u9ED8\u8BA4\uFF1A\u63D0\u4EA4", optionsOf(sel(1))[0]);
-  check("A6 PLACEHOLDER DOUBLE", firstOptionLabel(sel(2)) === "\u9ED8\u8BA4\uFF1A\u65B0\u4F1A\u8BDD", optionsOf(sel(2))[0]);
-  check("A6 PLACEHOLDER LONG", firstOptionLabel(sel(3)) === "\u9ED8\u8BA4\uFF1A\u541E\u6389", optionsOf(sel(3))[0]);
+  check("A6 PLACEHOLDER SINGLE", firstOptionLabel(sel(1)) === fill(L.keys.defaultPrefix, { label: L.actions.submit }), optionsOf(sel(1))[0]);
+  check("A6 PLACEHOLDER DOUBLE", firstOptionLabel(sel(2)) === fill(L.keys.defaultPrefix, { label: L.actions.newSession }), optionsOf(sel(2))[0]);
+  check("A6 PLACEHOLDER LONG", firstOptionLabel(sel(3)) === fill(L.keys.defaultPrefix, { label: L.actions.swallow }), optionsOf(sel(3))[0]);
   check("A6 PLACEHOLDER GRAY", prop(prop(sel(1), "style"), "color") === "var(--ui-text-quaternary)", prop(sel(1), "style"));
   const backRow = findRow(tree, "Back");
-  check("A6 PHRASE PLACEHOLDER", firstOptionLabel(cellProps(backRow, 2)) === "\u9ED8\u8BA4\uFF1A\u5E38\u7528\u8BED\u300C\u6536\u5230\u300D", optionsOf(cellProps(backRow, 2))[0]);
+  check("A6 PHRASE PLACEHOLDER", firstOptionLabel(cellProps(backRow, 2)) === fill(L.keys.defaultPrefix, { label: fill(L.actions.phraseQuoted, { name: PHRASE_NAME }) }), optionsOf(cellProps(backRow, 2))[0]);
   const addSel = findKeyed(tree, "sel");
   const addValues = [""].concat(CHROMECAST_KEYS);
   check("A7 ADD OPTIONS", addSel !== null && JSON.stringify(optionsOf(propsOf(addSel)).map((o) => prop(o, "value"))) === JSON.stringify(addValues), optionsOf(propsOf(addSel)).map((o) => prop(o, "value")));
@@ -259,13 +286,14 @@ function check(name, ok, detail) {
 }
 {
   const app = await boot(["Menu"], { ...REAL_KEYMAP, Menu: { single: "focus" } }, "chromecast-google-tv");
+  const L = app.zh;
   await wait(120);
   let tree = app.render();
   const want = CHROMECAST_KEYS.slice(0, 11).concat(["Menu"]);
   check("B1 CC ROWS WITH MANUAL KEY", JSON.stringify(rowCodes(tree)) === JSON.stringify(want), rowCodes(tree));
   const menuRow = findRow(tree, "Menu");
   const menuTexts = menuRow ? texts(menuRow) : [];
-  check("B1 UNKNOWN TAG", menuTexts.includes("\u672A\u77E5") && menuTexts.includes("\u8BE5\u578B\u53F7\u672A\u4E0A\u62A5"), menuTexts);
+  check("B1 UNKNOWN TAG", menuTexts.includes(L.keys.unknown) && menuTexts.includes(L.keys.notReported), menuTexts);
   check("B1 GRAYED", opacityOf(menuRow) === 0.72, prop(propsOf(menuRow), "style"));
   app.state.profileId = "xiaomi-bt-remote-2";
   await wait(REFRESH);

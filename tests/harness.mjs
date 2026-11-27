@@ -8,6 +8,7 @@ copyFileSync(SOURCE, new URL("./plugin.js", import.meta.url));
 const importFresh = new Function("specifier", "return import(specifier)");
 const pluginModule = await importFresh(`./plugin.js?t=${Date.now()}`);
 const plugin = pluginModule["default"];
+const ZH = pluginModule["zhMessages"];
 const g = globalThis;
 g["window"] = globalThis;
 g["document"] = { visibilityState: "visible" };
@@ -20,25 +21,28 @@ const record = (...entry) => {
   if (Array.isArray(existing)) existing.push(entry);
   else g["__calls"] = [entry];
 };
+const PHRASE_NAME = "ack";
+const PHRASE_TEXT = "Acknowledged, looking into it.";
 const state = {
   now: Date.now(),
   pid: 1,
   uptimeMs: 1e3,
   state: "ready",
   detail: null,
-  device: { id: "dev", name: "\u9065\u63A7\u5668" },
+  device: { id: "dev", name: "Xiaomi BT Remote 2" },
   battery: 80,
-  diagnostics: { frames: 3, sessions: 1, retries: 0, battery: 80, lastUtterance: { text: "\u4E0A\u4E00\u6B21" } },
+  diagnostics: { frames: 3, sessions: 1, retries: 0, battery: 80, lastUtterance: { text: "previous one" } },
   transcriber: { kind: "sensevoice", language: "zh", model: "/m/model.int8.onnx", ready: true },
   bridge: { exists: true },
   keys: {
     enabled: true,
     map: {
-      Back: { single: "stop", double: { action: "phrase", name: "\u6536\u5230" } },
+      Back: { single: "stop", double: { action: "phrase", name: PHRASE_NAME } },
       ContextMenu: { single: "submit" },
       Enter: { single: "submit", double: "new-session" },
       Home: { single: "new-session" },
-      // Chromecast 的输入源键：系统不认这个 usage，是唯一干净的「第二功能键」。
+      // Chromecast's input-source key: macOS does not accept this usage, which makes it the one
+      // clean "second function key" on that remote.
       InputSource: { single: "new-session" }
     },
     doubleMs: 300,
@@ -48,7 +52,7 @@ const state = {
   audio: { gapMs: 350, maxMs: 3e4, trimMs: 200, cutoffHz: 100 },
   autoSend: false,
   history: { enabled: true, limit: 500, count: 0 },
-  phrases: { \u6536\u5230: "\u6536\u5230\uFF0C\u6211\u770B\u4E00\u4E0B\u3002" },
+  phrases: { [PHRASE_NAME]: PHRASE_TEXT },
   config: { autoSend: false, autoStart: true, autoRestart: true, keysEnabled: true, history: true, language: "zh", gapMs: 350 },
   head: 0,
   bootAt: 1,
@@ -76,11 +80,11 @@ const ctx = {
         bootAt: state.bootAt
       };
     }
-    if (path2.startsWith("/history")) return { entries: [{ text: "\u5386\u53F2\u4E00", at: Date.now() }] };
+    if (path2.startsWith("/history")) return { entries: [{ text: "history one", at: Date.now() }] };
     if (path2.startsWith("/logs")) return { logs: ["line"] };
     if (path2 === "/config") return { config: state.config };
-    if (path2 === "/selftest") return { transcript: { text: "\u81EA\u68C0\u6587\u672C", audioSeconds: 1, inferenceSeconds: 0.1, selftest: true } };
-    if (path2 === "/mock/transcript") return { transcript: { text: "\u6A21\u62DF", at: Date.now() } };
+    if (path2 === "/selftest") return { transcript: { text: "selftest text", audioSeconds: 1, inferenceSeconds: 0.1, selftest: true } };
+    if (path2 === "/mock/transcript") return { transcript: { text: "mock", at: Date.now() } };
     return { ok: true };
   },
   onDispose: (fn) => disposers.push(fn),
@@ -93,10 +97,12 @@ const ctx = {
     return () => {
     };
   },
-  // prefs 里的 capture 提高到 true：DOM 通路只有在显式捕获时才动作，这里要能测到它。
-  // 真实的默认值是 false（不抢键），对应插件里 `if (!prefs.capture) return` 那一行。
+  // prefs.capture is forced to true here: the DOM path only acts when capture is explicitly on, and
+  // that is the path this harness needs to exercise. The real default is false (never steal keys),
+  // which corresponds to the renderer's `if (!prefs.capture) return`.
+  // prefs.locale is seeded to 'zh' so the catalogue under test is the Chinese one.
   storage: {
-    get: (k, d) => k === "prefs" ? { ...d, capture: true } : d,
+    get: (k, d) => k === "prefs" ? { ...d, capture: true, locale: "zh" } : d,
     set: () => {
     },
     remove: () => {
@@ -120,12 +126,13 @@ const clear = () => {
 };
 plugin.register(ctx);
 console.log("registered contributions:", registered.map((c2) => c2.area + ":" + c2.id).join(", "));
-console.log("AREA CHECK", registered.length === 4 && registered.some((c2) => c2.area === "routes") ? "PASS" : "FAIL");
-queue.push({ seq: 1, type: "transcript", at: Date.now(), payload: { text: "\u628A\u8FD9\u6BB5\u8BDD\u63D2\u8FDB\u53BB", audioSeconds: 2.2 } });
+const navLabel = field(field(registered.find((c2) => c2.area === "sidebar.nav") ?? {}, "data"), "label");
+console.log("AREA CHECK", registered.length === 4 && registered.some((c2) => c2.area === "routes") && navLabel === ZH.nav.title ? "PASS" : "FAIL");
+queue.push({ seq: 1, type: "transcript", at: Date.now(), payload: { text: "insert this sentence", audioSeconds: 2.2 } });
 await wait(900);
 let c = calls();
 const inserted = c.find((x) => x[0] === "insertText");
-console.log("TRANSCRIPT INSERT", inserted && inserted[2] === "\u628A\u8FD9\u6BB5\u8BDD\u63D2\u8FDB\u53BB" && field(inserted[3], "mode") === "inline" ? "PASS" : "FAIL", JSON.stringify(c));
+console.log("TRANSCRIPT INSERT", inserted && inserted[2] === "insert this sentence" && field(inserted[3], "mode") === "inline" ? "PASS" : "FAIL", JSON.stringify(c));
 clear();
 queue.push({ seq: 2, type: "key", at: Date.now(), payload: { code: "Back", down: true } });
 queue.push({ seq: 3, type: "key", at: Date.now() + 80, payload: { code: "Back", down: false } });
@@ -141,18 +148,18 @@ queue.push({ seq: 6, type: "key", at: t0 + 160, payload: { code: "Back", down: t
 queue.push({ seq: 7, type: "key", at: t0 + 220, payload: { code: "Back", down: false } });
 await wait(1400);
 c = calls();
-const phrase = c.find((x) => x[0] === "insertText" && typeof x[2] === "string" && x[2].includes("\u6211\u770B\u4E00\u4E0B"));
+const phrase = c.find((x) => x[0] === "insertText" && typeof x[2] === "string" && x[2].includes(PHRASE_TEXT));
 const noStop = !c.some((x) => x[0] === "request");
 console.log("DOUBLE TAP PHRASE", phrase && noStop ? "PASS" : "FAIL", JSON.stringify(c));
 clear();
-g["__draft"] = "\u6B63\u5728\u5199\u7684\u5185\u5BB9";
+g["__draft"] = "draft in progress";
 queue.push({ seq: 8, type: "key", at: Date.now(), payload: { code: "ContextMenu", down: true } });
 queue.push({ seq: 9, type: "key", at: Date.now() + 40, payload: { code: "ContextMenu", down: false } });
 await wait(800);
 c = calls();
-console.log("SUBMIT ACTION", c.some((x) => x[0] === "submit" && x[2] === "\u6B63\u5728\u5199\u7684\u5185\u5BB9") ? "PASS" : "FAIL", JSON.stringify(c));
+console.log("SUBMIT ACTION", c.some((x) => x[0] === "submit" && x[2] === "draft in progress") ? "PASS" : "FAIL", JSON.stringify(c));
 clear();
-queue.push({ seq: 10, type: "transcript", at: Date.now(), payload: { text: "\u81EA\u68C0\u6587\u672C", selftest: true } });
+queue.push({ seq: 10, type: "transcript", at: Date.now(), payload: { text: "selftest text", selftest: true } });
 await wait(900);
 console.log("SELFTEST SKIPPED", calls().length === 0 ? "PASS" : "FAIL", JSON.stringify(calls()));
 clear();
@@ -165,7 +172,7 @@ dom("keydown")(fakeEvent);
 await wait(300);
 console.log("DOM UNMAPPED KEY", calls().length === 0 && prevented === 0 ? "PASS" : "FAIL", JSON.stringify(calls()));
 clear();
-g["__draft"] = "\u7269\u7406\u952E\u76D8\u8349\u7A3F";
+g["__draft"] = "physical keyboard draft";
 let pEnter = 0;
 const enter = { code: "Enter", key: "Enter", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, repeat: false, preventDefault: () => pEnter++, stopPropagation: () => {
 } };
@@ -175,7 +182,7 @@ dom("keyup")(enter);
 await wait(1e3);
 console.log("DOM ENTER CAPTURED", pEnter > 0 && calls().some((x) => x[0] === "submit") ? "PASS" : "FAIL", JSON.stringify(calls()));
 clear();
-g["__draft"] = "\u6362\u884C\u4E0D\u8BE5\u88AB\u541E";
+g["__draft"] = "newline must survive";
 let pShift = 0;
 const shiftEnter = { ...enter, shiftKey: true, preventDefault: () => pShift++, stopPropagation: () => {
 } };
@@ -191,10 +198,10 @@ state.autoSend = true;
 state.config.autoSend = true;
 await wait(2200);
 g["__draft"] = "";
-queue.push({ seq: 12, type: "transcript", at: Date.now(), payload: { text: "\u76F4\u63A5\u53D1\u9001\u8FD9\u53E5" } });
+queue.push({ seq: 12, type: "transcript", at: Date.now(), payload: { text: "send this directly" } });
 await wait(1200);
 c = calls();
-console.log("AUTOSEND", c.some((x) => x[0] === "submit" && x[2] === "\u76F4\u63A5\u53D1\u9001\u8FD9\u53E5") ? "PASS" : "FAIL", JSON.stringify(c));
+console.log("AUTOSEND", c.some((x) => x[0] === "submit" && x[2] === "send this directly") ? "PASS" : "FAIL", JSON.stringify(c));
 clear();
 queue.push({ seq: 13, type: "key", at: Date.now(), payload: { code: "InputSource", down: true } });
 queue.push({ seq: 14, type: "key", at: Date.now() + 70, payload: { code: "InputSource", down: false } });
@@ -205,10 +212,10 @@ clear();
 state.bootAt = 2;
 queue.length = 0;
 await wait(1200);
-queue.push({ seq: 1, type: "transcript", at: Date.now(), payload: { text: "\u91CD\u542F\u540E\u7684\u7B2C\u4E00\u53E5", audioSeconds: 1 } });
+queue.push({ seq: 1, type: "transcript", at: Date.now(), payload: { text: "first one after restart", audioSeconds: 1 } });
 await wait(1400);
 c = calls();
-console.log("CURSOR RESET ON REBOOT", c.some((x) => (x[0] === "insertText" || x[0] === "submit") && x[2] === "\u91CD\u542F\u540E\u7684\u7B2C\u4E00\u53E5") ? "PASS" : "FAIL", JSON.stringify(c));
+console.log("CURSOR RESET ON REBOOT", c.some((x) => (x[0] === "insertText" || x[0] === "submit") && x[2] === "first one after restart") ? "PASS" : "FAIL", JSON.stringify(c));
 disposers.forEach((fn) => {
   try {
     fn();
