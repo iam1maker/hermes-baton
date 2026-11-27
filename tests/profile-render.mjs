@@ -17,7 +17,7 @@ const REAL_KEYMAP = {
   Back: { single: "stop", double: { action: "phrase", name: PHRASE_NAME } },
   InputSource: { single: "new-session" }
 };
-const DEVICES_DIR = "/Users/1maker/.hermes/baton/devices";
+const DEVICES_DIR = "~/.hermes/baton/devices";
 const chromecast = {
   id: "chromecast-google-tv",
   label: "Chromecast Remote",

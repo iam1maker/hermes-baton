@@ -7,11 +7,14 @@
 # reply is delivered before the gateway blips.
 set -u
 
-PLUGIN_DIR="/Users/1maker/.hermes/profiles/forge/plugins/baton"
-LOG="$PLUGIN_DIR/restart-verify.log"
-PY="$(ls -d /Users/1maker/.hermes/tools/python-3.14.9*/bin/python3 2>/dev/null | head -1)"
-SP="$(ls -d /Users/1maker/.hermes/installs/*/environments/*/venv/lib/python3.14/site-packages 2>/dev/null | head -1)"
-HERMES="/Users/1maker/.hermes/hermes-agent/.hermes/bin/hermes"
+# Every path is discovered or overridable; nothing here may assume the author's layout.
+APP_ROOT="${HERMES_APP_ROOT:-$HOME/.hermes}"
+PROFILE="${HERMES_HOME:-$APP_ROOT}"
+PLUGIN_DIR="${BATON_PLUGIN_DIR:-$PROFILE/plugins/baton}"
+LOG="${BATON_LOG:-$PLUGIN_DIR/restart-verify.log}"
+PY="${BATON_PY:-$(ls -d "$APP_ROOT"/tools/python-3*/bin/python3 2>/dev/null | head -1)}"
+SP="${BATON_SP:-$(ls -d "$APP_ROOT"/installs/*/environments/*/venv/lib/python3*/site-packages 2>/dev/null | head -1)}"
+HERMES="${BATON_HERMES:-$APP_ROOT/hermes-agent/.hermes/bin/hermes}"
 
 {
   echo
@@ -19,7 +22,7 @@ HERMES="/Users/1maker/.hermes/hermes-agent/.hermes/bin/hermes"
   sleep 75
 
   echo "--- gateway restart ---"
-  HERMES_HOME=/Users/1maker/.hermes/profiles/forge "$HERMES" gateway restart 2>&1 | tail -20
+  HERMES_HOME="$PROFILE" "$HERMES" gateway restart 2>&1 | tail -20
   echo "restart exit: $?"
 
   echo "--- waiting for the control socket ---"
@@ -34,7 +37,7 @@ HERMES="/Users/1maker/.hermes/hermes-agent/.hermes/bin/hermes"
 
   if [ ! -S "$HOME/.hermes/gateway.sock" ]; then
     echo "!! socket missing — falling back to 'gateway start'"
-    HERMES_HOME=/Users/1maker/.hermes/profiles/forge "$HERMES" gateway start 2>&1 | tail -20
+    HERMES_HOME="$PROFILE" "$HERMES" gateway start 2>&1 | tail -20
     sleep 8
   fi
 

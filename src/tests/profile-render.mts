@@ -40,7 +40,9 @@ const REAL_KEYMAP: Record<string, unknown> = {
   Back: { single: 'stop', double: { action: 'phrase', name: PHRASE_NAME } },
   InputSource: { single: 'new-session' }
 }
-const DEVICES_DIR = '/Users/1maker/.hermes/baton/devices'
+// Rendered as the register-hint example string, so it must read like a real path on any
+// machine — the test only checks that the page interpolates it.
+const DEVICES_DIR = '~/.hermes/baton/devices'
 
 // Backend labels are ASCII now; the renderer maps them through `deviceLabels`.
 const chromecast = {

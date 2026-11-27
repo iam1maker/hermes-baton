@@ -12,10 +12,14 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-HERMES_REPO = Path("/Users/1maker/.hermes/hermes-agent")
+# Paths are discovered, never baked in: this script ships in a public repository, so it
+# has to work on a machine that is not the author's. HERMES_APP_ROOT holds the install
+# (with hermes-agent/ inside it); HERMES_HOME is the profile root the gateway serves.
+APP_ROOT = Path(os.path.expanduser(os.environ.get("HERMES_APP_ROOT", "~/.hermes")))
+HERMES_REPO = Path(os.path.expanduser(os.environ.get("HERMES_REPO", str(APP_ROOT / "hermes-agent"))))
 sys.path.insert(0, str(HERMES_REPO))
 
-HOME = Path(os.path.expanduser(os.environ.get("BATON_PROBE_HOME", "~/.hermes/profiles/forge")))
+HOME = Path(os.path.expanduser(os.environ.get("BATON_PROBE_HOME") or os.environ.get("HERMES_HOME") or str(APP_ROOT)))
 
 from hermes_cli.gateway_client import _session_ticket  # noqa: E402
 from hermes_cli.gateway_runtime_attach import attach_gateway  # noqa: E402

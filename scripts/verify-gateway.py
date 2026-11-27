@@ -7,13 +7,17 @@ ctx.rest takes in the renderer), then issues real HTTP requests. Exit code 0 = a
 Usage: verify-gateway.py [--open-settings]
 """
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-HERMES_REPO = Path("/Users/1maker/.hermes/hermes-agent")
-HOME = Path("/Users/1maker/.hermes/profiles/forge")
+# Same discovery as probe-routes.py: HERMES_APP_ROOT for the install, HERMES_HOME (or
+# BATON_PROBE_HOME) for the profile whose gateway is probed.
+APP_ROOT = Path(os.path.expanduser(os.environ.get("HERMES_APP_ROOT", "~/.hermes")))
+HERMES_REPO = Path(os.path.expanduser(os.environ.get("HERMES_REPO", str(APP_ROOT / "hermes-agent"))))
+HOME = Path(os.path.expanduser(os.environ.get("BATON_PROBE_HOME") or os.environ.get("HERMES_HOME") or str(APP_ROOT)))
 sys.path.insert(0, str(HERMES_REPO))
 
 from hermes_cli.gateway_client import _session_ticket  # noqa: E402
