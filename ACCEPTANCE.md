@@ -663,3 +663,27 @@ fixture also carried an absolute path. They now discover the install from `HERME
 The README now states the `PYTHONPATH` incantation, because running these two scripts with the
 gateway's own interpreter still fails on `ModuleNotFoundError: No module named 'ruamel'`
 until the venv's `site-packages` is on the path.
+
+## CI gate: a pull request runs on a label, not on open (2026-11-27, measured)
+
+Each row below is a real reading from throwaway pull requests #5 and #7, opened, exercised and
+closed unmerged. `check-runs` is `GET /commits/<head>/check-runs`, `state` is
+`pulls/<n>.mergeable_state`.
+
+| Step | check-runs | state |
+| --- | --- | --- |
+| pull request opened, no label | 0 | `blocked` |
+| one push, no label (definition that also listened to `synchronize`) | 1, `completed/skipped` | **`clean`** |
+| `run-ci` label added | 1, `completed/success` | `clean` |
+| push after the label | 0 on the new head | `blocked` |
+| `gh workflow run ci.yml --ref <branch>` on that head | 1, `completed/success` | `blocked` (unchanged) |
+| label removed and re-added | 2, `completed/success` | `clean` |
+
+The second row is why `synchronize` was dropped from `types`: branch protection counts a
+skipped required check as satisfied, so a single push made an unlabelled pull request
+mergeable without CI ever running. The fifth row is why the documented re-run is a label
+bounce and not `workflow_dispatch` -- the dispatch check lands on the commit and passes, but
+the pull request's merge gate does not accept it.
+
+Main is unaffected: pushes to `main` run unconditionally and the gate is the same job
+(`45957203239` `push` `completed/success` on `c8d1792`).
