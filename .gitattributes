@@ -1,0 +1,20 @@
+# Generated code.
+#
+# Every .mjs / .js file outside dev/ is a build product: the sources are
+# TypeScript under src/ (or src/sidecar/vendor/), compiled by `node dev/build.mjs`.
+# They are committed so that `hermes plugins install iam1maker/hermes-baton`
+# yields a runnable plugin with no build step on the user's machine, but they
+# are not hand-written source: GitHub should not count them in the language
+# bar, and review diffs should collapse them.
+desktop/plugin.js linguist-generated=true
+scripts/*.mjs linguist-generated=true
+sidecar/*.mjs linguist-generated=true
+sidecar/**/*.mjs linguist-generated=true
+sidecar/**/*.js linguist-generated=true
+sidecar/*.js linguist-generated=true
+tests/*.mjs linguist-generated=true
+
+# The Bluetooth bridge is a compiled Swift binary and the VAD sample is audio;
+# linguist treats both as binary already, these keep them out of diffs too.
+sidecar/bin/* binary
+sidecar/assets/*.wav binary
