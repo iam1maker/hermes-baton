@@ -484,7 +484,7 @@ on real hardware, with the measured evidence.
 CI runs the same gates on every push to `main`, and on a pull request only after
 a maintainer adds the `run-ci` label (`gh pr edit <n> --add-label run-ci`) -- a
 new pull request starts with no check run at all, and a push that lands after the
-label needs `gh workflow run ci.yml --ref <branch>` to be checked again. Listening
+label needs the label removed and re-added to be checked again. Listening
 to only the `labeled` event is deliberate: any other pull_request event would
 report a *skipped* required check, which branch protection counts as satisfied. Every gate is hardware-free
 (`.github/workflows/ci.yml`, ubuntu runner): typecheck, build, a
@@ -510,7 +510,9 @@ for the owner. Because a pull request only runs CI once it carries the `run-ci`
 label, an unlabeled one sits at `Expected — Waiting for status to be reported`
 and cannot merge; that is the intended shape, not a stuck check. After the label
 is added, a further push moves the head commit and the check goes back to
-`Expected` until it is re-run. The branch naming, the pull-request template and the commit shape
+`Expected`: `gh pr edit --remove-label run-ci && gh pr edit --add-label run-ci`
+runs it again. `gh workflow run ci.yml --ref <branch>` executes the same suite but
+does not clear the merge gate. The branch naming, the pull-request template and the commit shape
 are in [`CONTRIBUTING.md`](CONTRIBUTING.md). For a new remote,
 [`docs/ADD-A-DEVICE.md`](docs/ADD-A-DEVICE.md) is the whole procedure; no Swift
 build is involved.

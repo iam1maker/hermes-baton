@@ -9,8 +9,8 @@
 ## Checks
 
 <!-- CI only starts once a maintainer adds the `run-ci` label; an unlabeled PR
-     shows `Expected` and cannot merge. A push after the label needs
-     `gh workflow run ci.yml --ref <branch>`. Paste local results meanwhile. -->
+     shows `Expected` and cannot merge. A push after the label needs the label
+     dropped and re-added. Paste local results meanwhile. -->
 
 - [ ] `node dev/typecheck.mjs && node dev/build.mjs && bash tests/run.sh` (paste the `SUMMARY` line)
 - [ ] generated artifacts (`sidecar/**/*.mjs`, `scripts/*.mjs`, `tests/*.mjs`, `desktop/plugin.js`) committed with their sources

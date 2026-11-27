@@ -13,7 +13,8 @@ preferences.
   pull request does not run CI until someone adds the `run-ci` label, so it sits at
   `Expected` until then (deliberate: a stranger's pull request must not spend a
   runner before anyone has read the diff). Only the `labeled` event is wired, so a
-  push after the label leaves the check at `Expected` until it is re-run;
+  push after the label leaves the check at `Expected` until the label is dropped
+  and re-added;
 - the branch must be up to date with `main` before it merges (`strict`), so the
   check you saw green is the tree you merge;
 - linear history, squash or rebase merge (merge commits are disabled);
@@ -26,7 +27,8 @@ git switch -c fix/device-switch-timeout    # feat/..., fix/..., docs/..., chore/
 git push -u origin fix/device-switch-timeout
 gh pr create --fill      # the template asks for the evidence
 gh pr edit --add-label run-ci          # starts CI
-gh workflow run ci.yml --ref "$(git rev-parse --abbrev-ref HEAD)"   # after a later push
+# after a later push, re-run it by dropping and re-adding the label:
+gh pr edit --remove-label run-ci && gh pr edit --add-label run-ci
 gh pr checks --watch     # waits for build-and-test
 gh pr merge --squash --delete-branch
 ```
