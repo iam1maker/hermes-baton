@@ -101,7 +101,9 @@ const FP32: ModelFile = {
   name: 'sensevoice-onnx/model.onnx',
   asr: true,
   size: 937_617_178,
-  sha256: null, // 894 MiB; size is pinned, sha is printed but not enforced
+  sha256: '977016bd9c79f9eb343430b5cc305e07ab64d5212dff41b0dcfa1694bee9a8cb',
+  // 894 MiB. The digest was computed from the file this project has run in production since
+  // 2026-11-15 (937,617,178 bytes, same object as the upstream release, checked by size).
   url: 'https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.onnx'
 }
 
