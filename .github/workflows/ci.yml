@@ -7,20 +7,7 @@ name: ci
 on:
   push:
     branches: [main]
-  # `pull_request_target`, not `pull_request`: with `pull_request` GitHub reads the workflow
-  # definition from the *head* branch, so an outside contributor could delete the gate below in
-  # their own branch and start CI without the owner. Measured: a throwaway pull request whose
-  # head stripped the gate ran `build-and-test` to green with no label (pull request #9).
-  # `pull_request_target` always reads this file from the default branch, so the pull request
-  # being gated cannot change the condition that gates it.
-  #
-  # Only `labeled` is wired, and the job requires the `run-ci` label -- labels need triage or
-  # write access, and the only collaborator here is the owner. Any other pull_request_target
-  # event would create a job whose `if` is false, and a skipped job reports a *skipped*
-  # required check, which branch protection counts as satisfied (also measured: one push made
-  # an unlabelled pull request `clean`).
-  pull_request_target:
-    types: [labeled]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -38,9 +25,6 @@ jobs:
     # the label removed and re-added to run again -- a `workflow_dispatch` run reports its check
     # on the commit but does not satisfy the pull request's merge gate (measured: `mergeable_state`
     # stayed `blocked` after a successful dispatch).
-    if: >-
-      github.event_name != 'pull_request_target' ||
-      contains(github.event.pull_request.labels.*.name, 'run-ci')
     # `pull_request_target` runs the base branch's workflow but must test the pull request's
     # tree, so it executes untrusted code by design. That is contained: no secrets are
     # referenced anywhere in this file and the token is read-only, so the worst case is arbitrary
