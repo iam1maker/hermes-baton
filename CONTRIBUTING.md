@@ -58,6 +58,23 @@ node dev/typecheck.mjs && node dev/build.mjs && bash tests/run.sh
 git status --porcelain          # no "product changed but not staged"
 ```
 
+## What a pull request is checked against
+
+1. **Rebuild before you commit.** `node dev/typecheck.mjs && node dev/build.mjs &&
+   bash tests/run.sh`; the generated `.mjs` files and `desktop/plugin.js` ship in
+   the same commit as their sources. CI runs the build and fails when the working
+   tree changes, so a forgotten rebuild is caught there instead of in review.
+2. **No credential examples.** Guides call `scripts/api-call.py` (it reads the
+   daemon token itself) instead of a `curl` line that expands a token variable.
+   The plugin scanner treats that pattern as HIGH exfiltration, which flips the
+   install verdict to CAUTION and blocks `hermes plugins install` for everyone
+   who does not pass `--force`.
+3. **ASCII outside the i18n payload.** User-facing text lives in
+   `src/desktop/i18n/` (`types.ts` is the contract; `zh.ts` and `en.ts` hold the
+   same key shape). `python3 scripts/cjk-scan.py .` must report only `zh.ts`.
+4. **Record the version.** A user-visible change adds a `CHANGELOG.md` entry, and
+   `plugin.yaml` keeps the same version as `dashboard/manifest.json`.
+
 ## Scope of a change
 
 Keep documentation and metadata in sync with behaviour in the same commit:

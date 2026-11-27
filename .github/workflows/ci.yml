@@ -1,0 +1,56 @@
+name: ci
+
+# Everything here is hardware-free: the suites stub the SDK, React and the
+# transport, so a plain runner proves the renderer engine, the device registry
+# and the model-precision logic without Electron, a gateway or a remote.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install the build toolchain
+        working-directory: dev
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: node dev/typecheck.mjs
+
+      - name: Build the runtime artifacts
+        run: node dev/build.mjs
+
+      - name: Refuse a dirty tree
+        # The products are generated from src/, so a build that changes them
+        # means a committed product is stale or a source edit forgot to rebuild.
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "generated artifacts are out of date:";
+            git status --short;
+            exit 1;
+          fi
+
+      - name: Tests
+        run: bash tests/run.sh
+
+      - name: Syntax-check the shipped products
+        run: |
+          node --check sidecar/server.mjs
+          node --check sidecar/stt/sensevoice.mjs
+          node --check sidecar/devices/index.mjs
+          node --check desktop/plugin.js
+
+      - name: Repository stays ASCII outside the i18n payload
+        run: python3 scripts/cjk-scan.py .

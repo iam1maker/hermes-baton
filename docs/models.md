@@ -123,10 +123,8 @@ The daemon's defaults are the DSH install
 fetching into the state dir, set both paths once:
 
 ```bash
-TOKEN=$(cat ~/.hermes/baton/token)
-curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"patch":{"modelDir":"'"$HOME"'/.hermes/baton/models/sensevoice-onnx","vadModel":"'"$HOME"'/.hermes/baton/models/silero-vad/silero_vad.onnx"}}' \
-  http://127.0.0.1:8791/config
+python3 scripts/api-call.py POST /config \
+  '{"patch":{"modelDir":"/Users/you/.hermes/baton/models/sensevoice-onnx","vadModel":"/Users/you/.hermes/baton/models/silero-vad/silero_vad.onnx"}}'
 ```
 
 Environment overrides (`REMOTE_MIC_MODEL_DIR`, `REMOTE_MIC_VAD_MODEL`,

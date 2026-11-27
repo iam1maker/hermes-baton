@@ -95,10 +95,9 @@ machine, and it needs **no** native engine -- nothing loads
 `sherpa-onnx-node`):
 
 ```bash
-TOKEN=$(cat ~/.hermes/baton/token)
-curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"patch":{"sttBaseUrl":"https://api.openai.com/v1","sttModel":"whisper-1","sttApiKey":"..."}}' \
-  http://127.0.0.1:8791/config
+# from the plugin directory; scripts/api-call.py reads the daemon token itself
+python3 scripts/api-call.py POST /config \
+  '{"patch":{"sttBaseUrl":"https://api.openai.com/v1","sttModel":"whisper-1","sttApiKey":"..."}}'
 ```
 
 ```bash
@@ -115,9 +114,8 @@ If the models were fetched somewhere other than the daemon's default (the
 legacy DSH path), set the two paths through `POST /config` as well:
 
 ```bash
-curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"patch":{"modelDir":"'"$HOME"'/.hermes/baton/models/sensevoice-onnx","vadModel":"'"$HOME"'/.hermes/baton/models/silero-vad/silero_vad.onnx"}}' \
-  http://127.0.0.1:8791/config
+python3 scripts/api-call.py POST /config \
+  '{"patch":{"modelDir":"/Users/you/.hermes/baton/models/sensevoice-onnx","vadModel":"/Users/you/.hermes/baton/models/silero-vad/silero_vad.onnx"}}'
 ```
 
 This build has no model-path fields on the page; `POST /config` and
@@ -451,6 +449,7 @@ bash tests/run.sh                            # builds, then all 75 assertions
 
 node --check sidecar/server.mjs
 bash sidecar/native/build.sh      # rebuild the universal bridge (Xcode CLT only)
+python3 scripts/api-call.py GET /state  # authenticated call to 127.0.0.1:8791, prints JSON
 python3 scripts/probe-routes.py   # which routes the running gateway actually has
 python3 scripts/switch-device.py  # hot-switch the two remotes and time it
 python3 scripts/verify-gateway.py # end-to-end check against the gateway
@@ -469,6 +468,22 @@ Generated products must be committed together with their sources -- see
 the same key shape); nothing else in this repository contains non-English
 prose. [`ACCEPTANCE.md`](ACCEPTANCE.md) records how each feature was verified
 on real hardware, with the measured evidence.
+
+CI runs the same gates on every push and pull request
+(`.github/workflows/ci.yml`, macOS runner, no hardware): typecheck, build, a
+dirty-tree check so a stale generated product cannot be committed, the five test
+suites, `node --check` on the shipped products, and `scripts/cjk-scan.py`.
+
+Two repository rules exist because they were learned the hard way:
+
+- **Generated products ship with their sources.** The runtime `.mjs` files and
+  `desktop/plugin.js` are build output; run `node dev/build.mjs` before
+  committing or CI fails the dirty-tree check.
+- **The guides never interpolate the daemon token.** `hermes plugins install`
+  scans the repository, and a `curl` line that expands a credential variable
+  raises a HIGH `exfiltration` finding, which turns the scan verdict into CAUTION
+  and blocks installation for everyone who does not pass `--force`. Use
+  `scripts/api-call.py`, which loads `~/.hermes/baton/token` itself.
 
 ## Contributing
 

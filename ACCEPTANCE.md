@@ -84,9 +84,7 @@ composer (insert mode by default, no auto-send).
 
 ```bash
 # daemon state / competing bridges / battery
-curl -s -H "Authorization: Bearer $(cat ~/.hermes/baton/token)" \
-  http://127.0.0.1:8791/state -o /tmp/baton-state.json
-python3 -m json.tool /tmp/baton-state.json
+python3 scripts/api-call.py GET /state > /tmp/baton-state.json
 
 # recent log
 tail -40 ~/.hermes/baton/daemon.log

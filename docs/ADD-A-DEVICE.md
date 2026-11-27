@@ -190,8 +190,7 @@ Two traps visible in the existing profiles:
 ## 6. Reload
 
 ```bash
-TOKEN=$(cat ~/.hermes/baton/token)
-curl -s -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8791/devices/reload
+python3 scripts/api-call.py POST /devices/reload
 ```
 
 `POST /devices/reload` re-reads both registry directories, recomputes the bridge
@@ -226,8 +225,7 @@ daemon and Hermes keep running. The response tells you what happened:
 After a successful reload:
 
 ```bash
-curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8791/state -o /tmp/baton-state.json
-python3 -m json.tool /tmp/baton-state.json
+python3 scripts/api-call.py GET /state > /tmp/baton-state.json
 ```
 
 `state.profileId` should be your `id`; pressing a key should produce a line in
@@ -237,8 +235,7 @@ explicit value in `settings.json` still wins, so a stale `hidKeys` from an earli
 experiment can hide a newly named key. Clear it with:
 
 ```bash
-curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"patch":{"keyMap":null,"hidKeys":null}}' http://127.0.0.1:8791/config
+python3 scripts/api-call.py POST /config '{"patch":{"keyMap":null,"hidKeys":null}}'
 ```
 
 `null` means "forget my override and go back to the profile default" for both
