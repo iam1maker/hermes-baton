@@ -487,8 +487,10 @@ Two repository rules exist because they were learned the hard way:
 
 ## Contributing
 
-Commit shape, scopes, the `Tests:` line, and the rule that products ship with
-their sources are in [`CONTRIBUTING.md`](CONTRIBUTING.md). For a new remote,
+`main` is protected: every change lands through a branch and a pull request with
+a green `build-and-test` check, squash-merged, and direct pushes are refused even
+for the owner. The branch naming, the pull-request template and the commit shape
+are in [`CONTRIBUTING.md`](CONTRIBUTING.md). For a new remote,
 [`docs/ADD-A-DEVICE.md`](docs/ADD-A-DEVICE.md) is the whole procedure; no Swift
 build is involved.
 
