@@ -339,6 +339,20 @@ async function importFrom(fromDir, opts) {
   }
 }
 const SHERPA_PACKAGE = "sherpa-onnx-node";
+const SHERPA_SHA256 = {
+  "sherpa-onnx-node": "db2a7b8b18d950b6e9ca5c1c919afec33fd3dd2bfef1aade0bea5a9fe7a1f0f1",
+  "sherpa-onnx-darwin-arm64": "e1abc1d9676478996574de922e55714d80b4500b860bc4e7349aa01cd0ea4929",
+  "sherpa-onnx-darwin-x64": "3e583d3423160cb8a0f9316008e293ad9a6b66c63e1966ad399a88300390fbaa"
+};
+function sherpaPlatformPackage() {
+  if (process.platform !== "darwin") {
+    throw new Error(
+      `the native engine ships macOS builds only (this host is ${process.platform}); point an external recognition service at BATON_STT_BASE_URL instead`
+    );
+  }
+  const arch = process.arch === "arm64" ? "arm64" : "x64";
+  return `sherpa-onnx-darwin-${arch}`;
+}
 function listSherpaPackages(modulesDir) {
   if (!existsSync(modulesDir)) return [];
   return readdirSync(modulesDir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).filter((name) => name === SHERPA_PACKAGE || name.startsWith("sherpa-onnx-"));
@@ -398,22 +412,53 @@ ${check2.detail}`);
   }
   const tmp = mkdtempSync(join(tmpdir(), "baton-sherpa-"));
   try {
-    const spec = `${SHERPA_PACKAGE}@${SHERPA_VERSION}`;
-    logSherpa(`npm install ${spec} into a temp prefix`);
-    const npm = spawnSync("npm", ["install", "--prefix", tmp, "--no-save", "--no-audit", "--no-fund", spec], {
+    const packages = [SHERPA_PACKAGE, sherpaPlatformPackage()];
+    const specs = packages.map((name) => `${name}@${SHERPA_VERSION}`);
+    const packDir = join(tmp, "pack");
+    mkdirSync(packDir, { recursive: true });
+    logSherpa(`npm pack ${specs.join(" ")} (each tarball is checked against its pinned sha256)`);
+    const pack = spawnSync("npm", ["pack", ...specs, "--pack-destination", packDir], {
       encoding: "utf8",
       timeout: 10 * 6e4,
       env: process.env
     });
+    if (pack.error) throw new Error(`could not run npm (${pack.error.message}); npm must be on PATH`);
+    if (pack.status !== 0) {
+      logCaptured("sherpa", [pack.stdout || "", pack.stderr || ""].join("\n").trim());
+      throw new Error(`npm pack ${specs.join(" ")} failed (exit ${pack.status}); see the npm output above`);
+    }
+    const tarballs = [];
+    for (const name of packages) {
+      const file = join(packDir, `${name}-${SHERPA_VERSION}.tgz`);
+      if (!existsSync(file)) throw new Error(`npm pack produced no ${name}-${SHERPA_VERSION}.tgz`);
+      const digest = await sha256File(file);
+      const expected = SHERPA_SHA256[name];
+      if (digest !== expected) {
+        throw new Error(
+          `${name}@${SHERPA_VERSION}: sha256 mismatch
+  got      ${digest}
+  expected ${expected}
+Refusing to install an unverified engine. If upstream really republished, review the diff and update SHERPA_SHA256.`
+        );
+      }
+      logSherpa(`verified ${name}-${SHERPA_VERSION}.tgz sha256=${digest.slice(0, 16)}...`);
+      tarballs.push(file);
+    }
+    logSherpa(`npm install ${tarballs.length} verified tarballs into a temp prefix`);
+    const npm = spawnSync(
+      "npm",
+      ["install", "--prefix", tmp, "--no-save", "--no-audit", "--no-fund", "--ignore-scripts", ...tarballs],
+      { encoding: "utf8", timeout: 10 * 6e4, env: process.env }
+    );
     if (npm.error) throw new Error(`could not run npm (${npm.error.message}); npm must be on PATH`);
     if (npm.status !== 0) {
       logCaptured("sherpa", [npm.stdout || "", npm.stderr || ""].join("\n").trim());
-      throw new Error(`npm install ${spec} failed (exit ${npm.status}); see the npm output above`);
+      throw new Error(`npm install of the verified tarballs failed (exit ${npm.status}); see the npm output above`);
     }
     const tmpModules = join(tmp, "node_modules");
     const names = listSherpaPackages(tmpModules);
     if (!names.includes(SHERPA_PACKAGE)) {
-      throw new Error(`npm install ${spec} produced no ${SHERPA_PACKAGE} under ${tmpModules}`);
+      throw new Error(`the verified install produced no ${SHERPA_PACKAGE} under ${tmpModules}`);
     }
     mkdirSync(modulesDir, { recursive: true });
     for (const name of names.sort()) {
