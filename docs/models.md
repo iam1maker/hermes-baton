@@ -21,12 +21,18 @@ the same text), which is why `--from` copies whatever you already have.
 
 ```bash
 # run from the checkout: install.sh copies the plugin, not scripts/
-node scripts/fetch-models.mjs            # int8 + tokens + VAD into <state>/models
-node scripts/fetch-models.mjs --fp32     # add the 894 MiB weight
+node scripts/fetch-models.mjs                 # int8 + tokens + VAD into <state>/models
+node scripts/fetch-models.mjs --fp32          # add the 894 MiB weight
+node scripts/fetch-models.mjs --with-sherpa   # models plus the native engine
+node scripts/fetch-models.mjs --sherpa-only   # native engine only
 node scripts/fetch-models.mjs --dir /path/to/models
 node scripts/fetch-models.mjs --from ~/.dsh/speech-to-text/sensevoice/models/sensevoice-onnx
 node scripts/fetch-models.mjs --url model.int8.onnx=https://mirror.example/model.int8.onnx
 ```
+
+Lines from the model phase are prefixed `[models]` and lines from the engine
+phase `[sherpa]`, so a wrapper can tell a download percentage from an install
+step.
 
 `<state>` is `~/.hermes/baton` (`BATON_STATE_DIR` overrides). The
 script:
@@ -49,6 +55,65 @@ Upstream URLs, verified reachable on 2026-11-26 (`curl -I` → 200):
 HuggingFace hands out short-lived signed CDN URLs, so a bare `curl` of the first
 two redirects; the script follows up to 8 redirects per file. If an upstream
 moves, `--url <name>=<url>` or `--from` keeps you working.
+
+## Native engine (sherpa-onnx-node)
+
+`sherpa-onnx-node` is the native binding that actually runs SenseVoice (it owns
+the ONNX Runtime session and ships a prebuilt binary per OS/architecture). It is
+**not vendored** here and is not a dependency of the plugin: `--with-sherpa`
+installs the pinned version into the state directory, next to the models.
+
+```bash
+node scripts/fetch-models.mjs --with-sherpa            # models + engine
+node scripts/fetch-models.mjs --sherpa-only            # engine only
+node scripts/fetch-models.mjs --sherpa-only --force    # reinstall the pinned version
+node scripts/fetch-models.mjs --sherpa-only --sherpa-dir /path/to/sherpa
+```
+
+The default install root is `<state>/sherpa` (`~/.hermes/baton/sherpa`;
+`BATON_STATE_DIR` / `REMOTE_MIC_STATE_DIR` move it), and the packages land in
+`<state>/sherpa/node_modules/sherpa-onnx-node` plus its platform sibling
+`sherpa-onnx-<os>-<arch>` (on this machine `sherpa-onnx-darwin-arm64`).
+
+The version is pinned in the script (`SHERPA_VERSION = '1.13.8'`) because the
+addon is a native ABI: 1.13.8 is what was measured on macOS arm64, and a newer
+release can change the addon ABI or the platform-package split without notice.
+The script runs
+
+```text
+npm install --prefix <tmp> --no-save --no-audit --no-fund sherpa-onnx-node@1.13.8
+```
+
+copies `sherpa-onnx-node` and every `sherpa-onnx-*` platform directory out of the
+temp prefix into the target `node_modules`, deletes the temp prefix, and then
+loads the installed `sherpa-onnx.js` in a child `node -e` that exits non-zero
+unless `OfflineRecognizer` is a function (the child's stderr is part of the error
+if it fails). A matching version is skipped -- printing `already installed` --
+only when that load succeeds; `--force` always reinstalls.
+
+Disk cost: ~33 MiB total, of which 32.5 MiB is the platform binary
+(`sherpa-onnx-darwin-arm64`) and under 1 MiB is the JS package.
+
+Discovery order at runtime, first working hit wins (as `sidecar/stt/sensevoice.mts`
+resolves it today):
+
+1. `BATON_SHERPA` (legacy `REMOTE_MIC_SHERPA`) -- a directory holding
+   `sherpa-onnx.js`, for an existing copy elsewhere;
+2. the plugin-local `sidecar/node_modules/sherpa-onnx-node` (and one directory
+   above it), for a bundled install;
+3. `<state>/sherpa/node_modules/sherpa-onnx-node` -- where `--with-sherpa` puts it.
+
+`/state.transcriber` reports which one was loaded.
+
+Upgrades are deliberate. Edit `SHERPA_VERSION` in `src/scripts/fetch-models.mts`,
+run `node dev/build.mjs` (the `.mjs` is generated; never hand-edit it), then
+`node scripts/fetch-models.mjs --sherpa-only --force` and repeat the smoke test
+(`node -e` require of the installed `sherpa-onnx.js`). Do not `npm i` into the
+state directory by hand: an unpinned version is exactly what the pin prevents.
+
+Nothing loads the engine when `sttBaseUrl` is set -- that path POSTs each
+utterance to an OpenAI-compatible `/audio/transcriptions` endpoint -- so both the
+models and the native engine may be absent.
 
 ## Point the daemon at them
 

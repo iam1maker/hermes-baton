@@ -78,14 +78,21 @@ hermes plugins enable baton
 ```
 
 ```bash
-# 2a. local speech models (int8 + tokens + Silero VAD, ~229 MiB)
-node ~/.hermes/plugins/baton/scripts/fetch-models.mjs
-# named profile: node ~/.hermes/profiles/<profile>/plugins/baton/scripts/fetch-models.mjs
+# 2a. local speech models + the native engine (int8 + tokens + Silero VAD, ~229 MiB;
+#     sherpa-onnx-node 1.13.8 + its platform binary, ~33 MiB)
+node ~/.hermes/plugins/baton/scripts/fetch-models.mjs --with-sherpa
+# named profile: node ~/.hermes/profiles/<profile>/plugins/baton/scripts/fetch-models.mjs --with-sherpa
 ```
+
+`--with-sherpa` installs the pinned `sherpa-onnx-node` into
+`~/.hermes/baton/sherpa/node_modules` and prints a one-line `node -e` check that
+the addon loads. If you already have the models, `--sherpa-only` does just the
+engine; `--force` reinstalls it.
 
 Or skip local models and point the daemon at any OpenAI-compatible
 `/audio/transcriptions` service (this is the only mode in which audio leaves the
-machine):
+machine, and it needs **no** native engine -- nothing loads
+`sherpa-onnx-node`):
 
 ```bash
 TOKEN=$(cat ~/.hermes/baton/token)
@@ -435,12 +442,12 @@ cd dev && npm install --no-audit --no-fund   # once: typescript + esbuild + @typ
 node dev/typecheck.mjs                       # whole project (tsc --noEmit equivalent)
 node dev/build.mjs                           # src/** -> the runtime artifacts
 
-bash tests/run.sh                            # builds, then all 73 assertions
+bash tests/run.sh                            # builds, then all 75 assertions
 #   harness.mjs           13  renderer: event stream, key engine, composer
 #   model-precision.mjs    5  int8/fp32 selection and fallbacks
 #   hid-filter.mjs        12  key ownership: active vs any
 #   devices-registry.mjs  19  JSON profiles -> key table, bridge args
-#   profile-render.mjs    24  per-device key rows, unknown-key handling
+#   profile-render.mjs    26  per-device key rows, unknown-key handling, stt summary
 
 node --check sidecar/server.mjs
 bash sidecar/native/build.sh      # rebuild the universal bridge (Xcode CLT only)

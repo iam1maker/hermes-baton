@@ -443,3 +443,126 @@ Trigger a rescan by changing `plugin.js` content or Cmd-K reload instead.
    table should change to the Chromecast's 11 rows
    (`Enter`, four arrows, `Home`, `YouTube`, `Netflix`, `InputSource`, `Power`,
    `Back`).
+
+## Native engine install, `--with-sherpa` (2026-11-27 11:04, measured)
+
+Before this change nothing in the repo installed `sherpa-onnx-node`; the daemon
+only found a copy another application had left under `~/.dsh`. The installer is
+now part of `fetch-models.mjs` (`--with-sherpa`, `--sherpa-only`,
+`--sherpa-dir`, pinned `SHERPA_VERSION = '1.13.8'`).
+
+Machine: macOS 27.3, arm64, Node v22.22.3, npm 10.9.8, npm registry reachable
+directly (no proxy).
+
+```text
+$ node scripts/fetch-models.mjs --with-sherpa --dir /tmp/baton-models-test --sherpa-dir /tmp/baton-sherpa-run --force
+[models] target directory: /tmp/baton-models-test
+[models] ↓ model.int8.onnx  ← https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.int8.onnx
+[models] model.int8.onnx: 10% (22.8 MiB / 228.2 MiB)
+[models] model.int8.onnx: 20% (45.6 MiB / 228.2 MiB)
+[models] model.int8.onnx: 30% (68.5 MiB / 228.2 MiB)
+[models] model.int8.onnx: 40% (91.3 MiB / 228.2 MiB)
+[models] model.int8.onnx: 50% (114.1 MiB / 228.2 MiB)
+[models] model.int8.onnx: 60% (136.9 MiB / 228.2 MiB)
+[models] model.int8.onnx: 70% (159.7 MiB / 228.2 MiB)
+[models] model.int8.onnx: 80% (182.5 MiB / 228.2 MiB)
+[models] model.int8.onnx: 90% (205.3 MiB / 228.2 MiB)
+[models] model.int8.onnx: 100% (228.2 MiB / 228.2 MiB)
+[models] ✓ model.int8.onnx  228.2 MiB  sha256=c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51
+[models] ↓ tokens.txt  ← https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt
+[models] ✓ tokens.txt  308 KiB  sha256=f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc
+[models] ↓ silero_vad.onnx  ← https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
+[models] ✓ silero_vad.onnx  629 KiB  sha256=9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6
+[sherpa] target /tmp/baton-sherpa-run/node_modules/sherpa-onnx-node
+[sherpa] npm install sherpa-onnx-node@1.13.8 into a temp prefix
+[sherpa] copied sherpa-onnx-darwin-arm64 (32.5 MiB)
+[sherpa] copied sherpa-onnx-node (60 KiB)
+[sherpa] verified: node -e require('/tmp/baton-sherpa-run/node_modules/sherpa-onnx-node/sherpa-onnx.js') -> OfflineRecognizer=function
+[sherpa] installed sherpa-onnx-node@1.13.8 in /tmp/baton-sherpa-run/node_modules (32.6 MiB)
+
+done. Models are in /tmp/baton-models-test
+Native engine is in /tmp/baton-sherpa-run/node_modules
+Point modelDir / vadModel there (see the end of --help), or switch to an external STT service.
+exit=0
+```
+
+Independent load check (the same `require` the daemon performs) and on-disk
+sizes:
+
+```text
+$ node -e "const m=require('/tmp/baton-sherpa-run/node_modules/sherpa-onnx-node/sherpa-onnx.js'); console.log('typeof OfflineRecognizer =', typeof m.OfflineRecognizer)"
+typeof OfflineRecognizer = function
+
+$ du -sh /tmp/baton-sherpa-run/node_modules/*
+ 33M	/tmp/baton-sherpa-run/node_modules/sherpa-onnx-darwin-arm64
+104K	/tmp/baton-sherpa-run/node_modules/sherpa-onnx-node
+$ du -sh /tmp/baton-sherpa-run/node_modules
+ 33M	/tmp/baton-sherpa-run/node_modules
+```
+
+Repeat and failure paths, same build:
+
+- second run without `--force`: `[sherpa] already installed
+  sherpa-onnx-node@1.13.8 (OfflineRecognizer=function); use --force to reinstall`,
+  exit 0;
+- a copy whose `package.json` says 1.13.8 but whose `sherpa-onnx.js` throws:
+  `[sherpa] sherpa-onnx-node@1.13.8 is present but does not load; reinstalling`
+  plus the child's stack, then a clean reinstall, exit 0;
+- unknown flag (`--nope`): usage text, exit 2;
+- model-only path (`--dir /tmp/baton-models-test`, files already present): three
+  `[models] ✓ ... ready` lines, exit 0; `--force` re-downloaded all three with
+  the pinned sha256 values above.
+
+## Clean-machine proof of the speech service (2026-11-27 11:27, measured)
+
+Question this answers: a user installs the plugin on a Mac that has never run it —
+what do they see, and can they fix it from the page?
+
+Setup: a throwaway `HOME`, a throwaway state directory, `BATON_BRIDGE=/nonexistent`
+(no Bluetooth involved) and a scratch port. Two daemons are used in turn: A with
+nothing installed at all, B with the model weights copied in but no engine.
+
+```text
+== A. nothing installed ==
+kind: missing | ready: False
+engine: False | problems: ['no .onnx in the model directory: <state>/models/sensevoice-onnx',
+  'missing tokens.txt: <state>/models/sensevoice-onnx/tokens.txt',
+  'missing Silero VAD: <state>/models/silero-vad/silero_vad.onnx']
+
+== B. weights present, engine missing -> install job ==
+job: {"job":{"id":"91410bed","what":"all","state":"running",...}}
+state: ok | percent: 100 | error: None
+  [sherpa] copied sherpa-onnx-node (60 KiB)
+  [sherpa] verified: node -e require('<state>/sherpa/node_modules/sherpa-onnx-node/sherpa-onnx.js') -> OfflineRecognizer=function
+  [sherpa] installed sherpa-onnx-node@1.13.8 in <state>/sherpa/node_modules (32.6 MiB)
+kind: sensevoice | ready: True
+engine: True <state>/sherpa/node_modules/sherpa-onnx-node
+model: <state>/models/sensevoice-onnx/model.int8.onnx
+settings.json modelDir: <state>/models/sensevoice-onnx
+settings.json vadModel: <state>/models/silero-vad/silero_vad.onnx
+
+== C. recognition in the clean state dir ==
+{"transcript":{"text":"<the bundled Chinese self-test sentence, recognised verbatim>","audioSeconds":6.685,"inferenceSeconds":0.121}}
+```
+
+Daemon log of the same run (UTC), which is what support would ask for:
+
+```text
+[stt] install started 9e582651 what=all
+[stt] install finished 9e582651 state=ok 6759ms
+recognition model switched: <state>/models/sensevoice-onnx/model.int8.onnx · int8
+settings updated: modelDir, vadModel
+[stt] SenseVoice loaded <state>/models/sensevoice-onnx/model.int8.onnx (428 ms)
+```
+
+Consequences worth keeping in mind:
+
+- the daemon's defaults now resolve to `<state>/models/sensevoice-onnx` and
+  `<state>/models/silero-vad/silero_vad.onnx`, so `fetch-models.mjs` with no
+  flags needs no follow-up config (its closing line says so);
+- an install that ends at exit 0 persists `modelDir`/`vadModel` through the
+  normal settings path, but only when they were empty — an existing explicit
+  choice (for example an older model tree) is never overwritten;
+- `--with-sherpa` output is line-tagged `[models]` / `[sherpa]`, which is how the
+  page's progress bar and phase label are derived;
+- 13/13 assertions in the clean-machine script passed on this build.
