@@ -20,6 +20,12 @@ if [ ! -d dev/node_modules ]; then
   ( cd dev && npm install --no-audit --no-fund ) || { echo "BUILD FAIL (npm install)"; echo "EXIT 1"; exit 1; }
 fi
 
+# The suites load the real desktop bundle, so `@hermes/plugin-sdk` and `react` have
+# to resolve next to it. tests/support holds the stubs (tracked); copy them into
+# tests/node_modules, which is ignored, so a fresh checkout can run the suites.
+rm -rf tests/node_modules
+cp -R tests/support tests/node_modules || { echo "BUILD FAIL (stubs)"; echo "EXIT 1"; exit 1; }
+
 echo "== build =="
 if ! node dev/build.mjs; then
   echo "BUILD FAIL"
