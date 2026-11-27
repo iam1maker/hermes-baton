@@ -456,7 +456,11 @@ Python (the system 3.9 has no `hermes` package); `switch-device.py` and
 `watch-keys.py` talk to `127.0.0.1:8791` directly and are plain stdlib.
 
 Generated products must be committed together with their sources -- see
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
+[`CONTRIBUTING.md`](CONTRIBUTING.md). Every user-facing string lives in
+`src/desktop/i18n/` (`types.ts` is the contract, `zh.ts` and `en.ts` must keep
+the same key shape); nothing else in this repository contains non-English
+prose. [`ACCEPTANCE.md`](ACCEPTANCE.md) records how each feature was verified
+on real hardware, with the measured evidence.
 
 ## Contributing
 
