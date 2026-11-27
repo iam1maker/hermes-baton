@@ -230,6 +230,8 @@ export const zh: Messages = {
     cardHint: '本机 SenseVoice 识别所需的一切都在这里：引擎、模型、VAD，缺什么装什么；也可以改用外部识别服务。',
     kindLocal: '本地 SenseVoice',
     kindExternal: '外部服务',
+    unavailable: '状态不可用',
+    unavailableHint: '读不到语音服务状态：网关还没挂载 /stt 路由，重启一次网关即可（{error}）',
     kindMissing: '未配置',
     ready: '就绪',
     attention: '待处理',

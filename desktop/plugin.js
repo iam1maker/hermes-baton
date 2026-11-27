@@ -224,6 +224,8 @@ var en = {
     cardHint: "Everything local SenseVoice recognition needs: engine, model and VAD \u2014 install what is missing here, or switch to an external service.",
     kindLocal: "Local SenseVoice",
     kindExternal: "External service",
+    unavailable: "Status unavailable",
+    unavailableHint: "Cannot read the speech-service status: the gateway has not mounted /stt yet -- restart the gateway once ({error})",
     kindMissing: "Not configured",
     ready: "ready",
     attention: "needs attention",
@@ -526,6 +528,8 @@ var zh = {
     cardHint: "\u672C\u673A SenseVoice \u8BC6\u522B\u6240\u9700\u7684\u4E00\u5207\u90FD\u5728\u8FD9\u91CC\uFF1A\u5F15\u64CE\u3001\u6A21\u578B\u3001VAD\uFF0C\u7F3A\u4EC0\u4E48\u88C5\u4EC0\u4E48\uFF1B\u4E5F\u53EF\u4EE5\u6539\u7528\u5916\u90E8\u8BC6\u522B\u670D\u52A1\u3002",
     kindLocal: "\u672C\u5730 SenseVoice",
     kindExternal: "\u5916\u90E8\u670D\u52A1",
+    unavailable: "\u72B6\u6001\u4E0D\u53EF\u7528",
+    unavailableHint: "\u8BFB\u4E0D\u5230\u8BED\u97F3\u670D\u52A1\u72B6\u6001\uFF1A\u7F51\u5173\u8FD8\u6CA1\u6302\u8F7D /stt \u8DEF\u7531\uFF0C\u91CD\u542F\u4E00\u6B21\u7F51\u5173\u5373\u53EF\uFF08{error}\uFF09",
     kindMissing: "\u672A\u914D\u7F6E",
     ready: "\u5C31\u7EEA",
     attention: "\u5F85\u5904\u7406",
@@ -664,6 +668,7 @@ var CTX = null;
 var store = {
   snap: null,
   stt: null,
+  sttError: null,
   selftest: null,
   error: null,
   cursor: null,
@@ -783,9 +788,12 @@ async function refreshStt() {
       incoming.lines = priorLines.length >= incomingLines.length ? priorLines : incomingLines;
     }
     store.stt = info;
+    store.sttError = null;
     watchSttJob();
     publish();
-  } catch {
+  } catch (error) {
+    store.sttError = error instanceof Error ? error.message : String(error);
+    publish();
   }
 }
 function watchSttJob() {
@@ -1879,6 +1887,8 @@ function SttCard() {
   const s = useStore();
   const info = s.stt || {};
   const summary = sttSummary(s.stt);
+  const unavailable = !s.stt && Boolean(s.sttError);
+  const dash = "\u2014";
   const local = info.local || {};
   const external = info.external || {};
   const job = info.job || {};
@@ -1920,36 +1930,37 @@ function SttCard() {
             lineHeight: "16px"
           },
           children: [
-            /* @__PURE__ */ jsx(Dot, { ...{ key: "d" }, tone: summary.readyDot, pulse: running }),
-            /* @__PURE__ */ jsx("span", { ...{ key: "k" }, children: summary.kindLabel }),
-            /* @__PURE__ */ jsx("span", { ...{ key: "r" }, style: { color: C.fg4 }, children: info.ready ? L.stt.ready : L.stt.attention })
+            /* @__PURE__ */ jsx(Dot, { ...{ key: "d" }, tone: unavailable ? C.orange : summary.readyDot, pulse: running }),
+            /* @__PURE__ */ jsx("span", { ...{ key: "k" }, children: unavailable ? L.stt.unavailable : summary.kindLabel }),
+            /* @__PURE__ */ jsx("span", { ...{ key: "r" }, style: { color: C.fg4 }, children: unavailable ? "" : info.ready ? L.stt.ready : L.stt.attention })
           ]
         }
       ),
       children: [
         /* @__PURE__ */ jsxs(Field, { label: L.stt.engine, children: [
-          /* @__PURE__ */ jsx("span", { style: { fontSize: FS.small, color: summary.engineMissing ? C.orange : C.fg2 }, children: summary.engineLabel }),
-          /* @__PURE__ */ jsx(Btn, { ghost: true, disabled: running, onClick: () => installStt("sherpa", false), children: L.stt.installEngine })
+          /* @__PURE__ */ jsx("span", { style: { fontSize: FS.small, color: unavailable ? C.fg4 : summary.engineMissing ? C.orange : C.fg2 }, children: unavailable ? dash : summary.engineLabel }),
+          /* @__PURE__ */ jsx(Btn, { ghost: true, disabled: running || unavailable, onClick: () => installStt("sherpa", false), children: L.stt.installEngine })
         ] }),
         /* @__PURE__ */ jsx(Field, { label: L.stt.model, children: /* @__PURE__ */ jsx(
           "span",
           {
             style: {
               fontSize: FS.small,
-              color: summary.needsInstall ? C.orange : C.fg2,
+              color: unavailable ? C.fg4 : summary.needsInstall ? C.orange : C.fg2,
               maxWidth: 280,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap"
             },
-            children: summary.modelLabel
+            children: unavailable ? dash : summary.modelLabel
           }
         ) }),
-        /* @__PURE__ */ jsx(Field, { label: L.stt.vad, children: /* @__PURE__ */ jsx("span", { style: { fontSize: FS.small, color: local.vad ? C.fg2 : C.orange }, children: local.vad ? fmt(L.stt.vadPresent, { name: pathBasename(local.vad) }) : L.stt.vadMissing }) }),
+        /* @__PURE__ */ jsx(Field, { label: L.stt.vad, children: /* @__PURE__ */ jsx("span", { style: { fontSize: FS.small, color: unavailable ? C.fg4 : local.vad ? C.fg2 : C.orange }, children: unavailable ? dash : local.vad ? fmt(L.stt.vadPresent, { name: pathBasename(local.vad) }) : L.stt.vadMissing }) }),
         /* @__PURE__ */ jsx(Field, { label: L.stt.language, children: /* @__PURE__ */ jsx("span", { style: { fontSize: FS.small, color: C.fg2 }, children: String(info.language || "zh") }) }),
+        unavailable ? /* @__PURE__ */ jsx("span", { ...{ key: "na" }, style: { fontSize: FS.tiny, color: C.orange, lineHeight: 1.5 }, children: fmt(L.stt.unavailableHint, { error: String(s.sttError || "").slice(0, 120) }) }) : null,
         /* @__PURE__ */ jsxs("div", { ...{ key: "dl" }, style: { display: "flex", gap: 8, flexWrap: "wrap" }, children: [
-          /* @__PURE__ */ jsx(Btn, { ...{ key: "i8" }, disabled: running, onClick: () => installStt("all", false), children: L.stt.download }),
-          /* @__PURE__ */ jsx(Btn, { ...{ key: "f32" }, disabled: running, onClick: () => installStt("all", true), children: L.stt.downloadFp32 })
+          /* @__PURE__ */ jsx(Btn, { ...{ key: "i8" }, disabled: running || unavailable, onClick: () => installStt("all", false), children: L.stt.download }),
+          /* @__PURE__ */ jsx(Btn, { ...{ key: "f32" }, disabled: running || unavailable, onClick: () => installStt("all", true), children: L.stt.downloadFp32 })
         ] }),
         job.state ? /* @__PURE__ */ jsxs(Panel, { ...{ key: "job" }, style: { display: "flex", flexDirection: "column", gap: 6 }, children: [
           /* @__PURE__ */ jsx("div", { style: { height: 3, borderRadius: 999, background: TINT(C.fg4, 26), overflow: "hidden" }, children: /* @__PURE__ */ jsx(

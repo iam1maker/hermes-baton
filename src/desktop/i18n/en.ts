@@ -231,6 +231,8 @@ export const en: Messages = {
       'Everything local SenseVoice recognition needs: engine, model and VAD — install what is missing here, or switch to an external service.',
     kindLocal: 'Local SenseVoice',
     kindExternal: 'External service',
+    unavailable: 'Status unavailable',
+    unavailableHint: 'Cannot read the speech-service status: the gateway has not mounted /stt yet -- restart the gateway once ({error})',
     kindMissing: 'Not configured',
     ready: 'ready',
     attention: 'needs attention',
