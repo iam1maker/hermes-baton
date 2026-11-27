@@ -1,4 +1,4 @@
-# Voice Remote -- acceptance checklist (3 minutes)
+# Baton -- acceptance checklist (3 minutes)
 
 > Code lives in TypeScript under `src/`; `sidecar/*.mjs`, `desktop/plugin.js` and
 > `tests/*.mjs` are products of `node dev/build.mjs` (each carries a
@@ -33,7 +33,7 @@ process. Only one `.../plugins/baton/sidecar/bin/atvv-link` is a clean state.
 
 ## 1. Read the state (no key press)
 
-Hermes sidebar -> **Voice Remote**:
+Hermes sidebar -> **Baton**:
 
 - The link card should read **ready** and show the battery level (57% at the
   time of writing).
@@ -410,7 +410,7 @@ remote as ignored and the Chromecast as active). Then press the Chromecast
   (the cursor in `desktop.log` staying at an old value is the evidence); use
   Cmd-K -> `Reload desktop plugins` -> Enter.
 
-## Fix for "no Voice Remote in the sidebar" (2026-11-27 01:00, three root causes)
+## Fix for "no Baton pane in the sidebar" (2026-11-27 01:00, three root causes)
 
 | Root cause | What was actually true | Fix |
 |---|---|---|
@@ -426,11 +426,11 @@ Trigger a rescan by changing `plugin.js` content or Cmd-K reload instead.
 
 ### Morning acceptance (5 steps, each with a criterion)
 
-1. **Restart the Hermes app** -> the sidebar should list "Voice Remote" after
+1. **Restart the Hermes app** -> the sidebar should list "Baton" after
    scheduled tasks. If not, the marker was written again:
    `ls -a ~/.hermes/desktop-plugins/baton/` (`.hermes-package.json` present means
    it recurred).
-2. Click "Voice Remote" -> the top should be green **ready** + battery, no red
+2. Click "Baton" -> the top should be green **ready** + battery, no red
    bar. A red `Plugin not found` bar means the current profile does not have the
    plugin (`desktop.log`'s `gateway-route ... profile=<x>` says which profile the
    app is on).

@@ -3,15 +3,15 @@ import type { Messages } from './types'
 /** English catalogue — written for meaning, not word-for-word. */
 export const en: Messages = {
   plugin: {
-    name: 'Remote voice input',
+    name: 'Baton',
     description:
       'Voice remote for Hermes: hold the mic key to insert locally transcribed text, map keys to submit / stop / new session / canned phrases, and switch between remote models.'
   },
   nav: {
-    title: 'Remote voice input'
+    title: 'Baton'
   },
   palette: {
-    title: 'Remote voice input',
+    title: 'Baton',
     keywords: ['mic', 'voice', 'dictation', 'remote', 'speech', 'microphone', 'transcribe', 'remote control']
   },
   common: {

@@ -7,14 +7,14 @@ import { useEffect, useState } from "react";
 // src/desktop/i18n/en.ts
 var en = {
   plugin: {
-    name: "Remote voice input",
+    name: "Baton",
     description: "Voice remote for Hermes: hold the mic key to insert locally transcribed text, map keys to submit / stop / new session / canned phrases, and switch between remote models."
   },
   nav: {
-    title: "Remote voice input"
+    title: "Baton"
   },
   palette: {
-    title: "Remote voice input",
+    title: "Baton",
     keywords: ["mic", "voice", "dictation", "remote", "speech", "microphone", "transcribe", "remote control"]
   },
   common: {
@@ -272,14 +272,14 @@ var en = {
 // src/desktop/i18n/zh.ts
 var zh = {
   plugin: {
-    name: "\u9065\u63A7\u5668\u8BED\u97F3\u8F93\u5165",
+    name: "Baton",
     description: "\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668\uFF1A\u8BF4\u8BDD\u5373\u63D2\u5165\u672C\u5730\u8BC6\u522B\u7684\u6587\u5B57\uFF0C\u6309\u952E\u53EF\u6620\u5C04\u4E3A\u63D0\u4EA4/\u505C\u6B62/\u65B0\u5EFA\u4F1A\u8BDD/\u5E38\u7528\u8BED\uFF0C\u652F\u6301\u591A\u578B\u53F7"
   },
   nav: {
-    title: "\u9065\u63A7\u5668\u8BED\u97F3\u8F93\u5165"
+    title: "Baton"
   },
   palette: {
-    title: "\u9065\u63A7\u5668\u8BED\u97F3\u8F93\u5165",
+    title: "Baton",
     keywords: ["mic", "voice", "dictation", "remote", "\u8BED\u97F3", "\u9EA6\u514B\u98CE", "\u9065\u63A7\u5668", "\u542C\u5199"]
   },
   common: {

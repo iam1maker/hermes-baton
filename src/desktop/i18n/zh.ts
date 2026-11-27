@@ -3,15 +3,15 @@ import type { Messages } from './types'
 /** Chinese catalogue — the source of truth for wording. */
 export const zh: Messages = {
   plugin: {
-    name: '遥控器语音输入',
+    name: 'Baton',
     description:
       '蓝牙语音遥控器：说话即插入本地识别的文字，按键可映射为提交/停止/新建会话/常用语，支持多型号'
   },
   nav: {
-    title: '遥控器语音输入'
+    title: 'Baton'
   },
   palette: {
-    title: '遥控器语音输入',
+    title: 'Baton',
     keywords: ['mic', 'voice', 'dictation', 'remote', '语音', '麦克风', '遥控器', '听写']
   },
   common: {

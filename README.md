@@ -13,10 +13,11 @@ profiles, so supporting a new model is a data change, not a code change.
 
 Plugin id `baton` · kind `standalone` · requires Hermes `>=0.22.5` · macOS only
 
-> The display name is **Voice Remote**. The agent tool is also `baton`, state
-> lives in `~/.hermes/baton/`, the loopback daemon listens on `127.0.0.1:8791`,
-> and the desktop page opens from the sidebar or the palette command
-> `baton.open`.
+> The display name is **Baton** in every language: the sidebar entry, the page
+> title and the palette command all read `Baton`, so there is no zh/en pair to
+> keep in sync. It is also the agent tool name, the state directory
+> `~/.hermes/baton/`, the palette id `baton.open` and the loopback port
+> `127.0.0.1:8791`'s service.
 
 ## Features
 

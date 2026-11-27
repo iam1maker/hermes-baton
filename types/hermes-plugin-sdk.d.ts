@@ -1,5 +1,5 @@
 /**
- * Local mirror of the `@hermes/plugin-sdk` surface the baton (Voice Remote) renderer uses.
+ * Local mirror of the `@hermes/plugin-sdk` surface the baton renderer uses.
  *
  * The runtime resolves the REAL module — `@hermes/plugin-sdk` stays external in
  * `desktop/plugin.js`. This file exists only so `node dev/typecheck.mjs` can type

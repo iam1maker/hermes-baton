@@ -94,7 +94,7 @@ if [ "$DESKTOP_ONLY" = "yes" ]; then
   cat <<EOF
 
 Desktop half refreshed: $DESKTOP_DIR/plugin.js
-Restart the Hermes app and look for "Voice Remote" in the sidebar.
+Restart the Hermes app and look for "Baton" in the sidebar.
 EOF
   exit 0
 fi

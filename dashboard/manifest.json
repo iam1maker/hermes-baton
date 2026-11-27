@@ -1,6 +1,6 @@
 {
   "name": "baton",
-  "label": "Voice Remote",
+  "label": "Baton",
   "description": "Bluetooth voice remote: link status, key mapping, device switching, canned phrases, voice-input history and local recognition self-test",
   "icon": "Mic",
   "version": "1.0.0",
