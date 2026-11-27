@@ -14,9 +14,9 @@ function hidUsageToCode(page, usage) {
         return "AudioVolumeDown";
       case 226:
         return "AudioVolumeMute";
-      // Chromecast with Google TV 遥控器（VID 0x18D1 / PID 0x9450）的主集合是
-      // Consumer Control，方向与确认走标准 Menu 用法。实测：0x41=中键确认、
-      // 0x42/0x43/0x44/0x45=上/下/左/右、0x223=Home（AC Home）。
+      // Chromecast with Google TV remote (VID 0x18D1 / PID 0x9450): the primary collection is
+      // Consumer Control, and the d-pad / OK use the standard Menu usages. Measured: 0x41=OK (centre),
+      // 0x42/0x43/0x44/0x45=up/down/left/right, 0x223=Home (AC Home).
       case 65:
         return "Enter";
       case 66:
@@ -29,9 +29,9 @@ function hidUsageToCode(page, usage) {
         return "ArrowRight";
       case 547:
         return "Home";
-      // 专用键：Google keylayout（Vendor_18d1_Product_9451.kl）里
-      // YouTube=0x0C0077、Netflix=0x0C0078；电源与输入源由实测时间戳对上
-      // （按电源键 macOS 立即锁屏 = 系统层级消费了这次 HID 事件）。
+      // Dedicated keys: in Google's keylayout (Vendor_18d1_Product_9451.kl)
+      // YouTube=0x0C0077, Netflix=0x0C0078; power and input-source were matched by observed
+      // timestamps (pressing power locks macOS instantly = the system consumed the HID event).
       case 119:
         return "YouTube";
       case 120:
@@ -58,9 +58,9 @@ function hidUsageToCode(page, usage) {
       return "F5";
     case 74:
       return "Home";
-    // 真机实测（固件 2671）：Back 键以键盘 usage 0xF1 上报、音量以 0x80/0x81 上报，
-    // 0xE9/0xEA 那种 consumer 形式在这台遥控器上从不出现。少了这三条就表现为
-    // 「按 Back 日志只有 [hid] unmapped，双击映射完全不触发」。
+    // Measured on real hardware (firmware 2671): the Back key reports as keyboard usage 0xF1 and
+    // volume as 0x80/0x81; the consumer forms 0xE9/0xEA never appear on this remote. Without these
+    // three entries the symptom is "press Back, the log only shows [hid] unmapped, the double-tap binding never fires".
     case 241:
       return "Back";
     case 128:
@@ -219,7 +219,7 @@ class RemoteMicService extends TypedEmitter {
       this.setState("error", blocked);
       return;
     }
-    this.setState("starting", this.#retries > 0 ? `\u91CD\u8FDE\u4E2D\uFF08\u7B2C ${this.#retries} \u6B21\uFF09` : void 0);
+    this.setState("starting", this.#retries > 0 ? `reconnecting (attempt ${this.#retries})` : void 0);
     try {
       await this.#transport.start();
       if (!this.#wantRunning) await this.#transport.stop().catch(() => void 0);
@@ -294,7 +294,7 @@ class RemoteMicService extends TypedEmitter {
         if (expected && device && String(device) !== expected) {
           if (!this.#ignoredDevices.has(String(device))) {
             this.#ignoredDevices.add(String(device));
-            this.#log(`[hid] \u5FFD\u7565\u975E\u5F53\u524D\u8BBE\u5907\u7684\u6309\u952E device=${device}\uFF08\u5F53\u524D=${expected}\uFF09`);
+            this.#log(`[hid] ignoring key from a non-current device device=${device} (current=${expected})`);
           }
           return;
         }
@@ -375,11 +375,11 @@ class RemoteMicService extends TypedEmitter {
       });
       const preparedMs = Math.round(prepared.length / sampleRate * 1e3);
       if (preparedMs < 120) {
-        this.#log(`[stt] \u97F3\u9891\u8FC7\u77ED\uFF08${preparedMs}ms\uFF09\uFF0C\u8DF3\u8FC7\u8BC6\u522B`);
+        this.#log(`[stt] audio too short (${preparedMs}ms), skipping recognition`);
         this.emit("notice", {
           kind: "too-short",
           audioMs: preparedMs,
-          message: `\u8FD9\u6761\u592A\u77ED\u4E86\uFF08${preparedMs}ms\uFF09\uFF0C\u6309\u4F4F\u8BED\u97F3\u952E\u591A\u8BF4\u4E24\u4E2A\u5B57`
+          message: `utterance too short (${preparedMs}ms)`
         });
         this.setState("ready");
         return;
@@ -393,7 +393,7 @@ class RemoteMicService extends TypedEmitter {
         this.emit("notice", {
           kind: "empty",
           audioMs: preparedMs,
-          message: `\u6CA1\u542C\u6E05\uFF08${preparedMs}ms \u97F3\u9891\uFF09\uFF0C\u518D\u8BF4\u4E00\u6B21\uFF1F`
+          message: `no speech recognised (${preparedMs}ms of audio)`
         });
         this.setState("ready");
         return;

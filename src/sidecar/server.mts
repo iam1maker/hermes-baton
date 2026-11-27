@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * baton daemon — the process half of the Hermes「指挥」plugin.
+ * baton daemon — the process half of the Hermes baton plugin.
  *
  * Owns: the CoreBluetooth bridge (`bin/atvv-link`), the ATVV/ADPCM front-end,
  * utterance segmentation, local SenseVoice transcription, and a loopback-only
@@ -43,20 +43,20 @@ const HOME = homedir()
 
 /* ────────────────────────── config ────────────────────────── */
 
-/** 动作槽归一化后的形状：内置动词字符串，或常用语引用对象（normalizeSlot 的返回值）。 */
+/** Shape of an action slot after normalisation: a built-in verb string, or a phrase reference (what normalizeSlot returns). */
 type NormalizedSlot = string | { action: 'phrase'; name: string }
 
-/** 同一个键上的三种手势（归一化后）。缺省表示该手势不绑定。 */
+/** The three gestures on one key (after normalisation). Absent means that gesture is unbound. */
 interface NormalizedBinding {
   single?: NormalizedSlot
   double?: NormalizedSlot
   long?: NormalizedSlot
 }
 
-/** KeyboardEvent.code → 手势表（归一化后）。 */
+/** KeyboardEvent.code → gesture table (after normalisation). */
 type NormalizedKeyMap = Record<string, NormalizedBinding>
 
-/** 守护进程运行期配置：settings.json 的值经 mergeConfig 归一化后的形状。 */
+/** Daemon runtime config: the shape settings.json takes once mergeConfig normalises it. */
 interface Config {
   gapMs: number
   maxMs: number
@@ -84,13 +84,14 @@ interface Config {
   modelFile: string
   precision: 'int8' | 'fp32'
   /**
-   * settings.json 里可能带任意额外键（DSH 迁移、手工编辑都可能），原 JS 全量透传；
-   * 索引签名保留同样的动态性，已知键的读取仍拿到上面声明的精确类型。
+   * settings.json may carry arbitrary extra keys (DSH migration or hand edits); the original JS
+   * passed them all through. The index signature keeps that same dynamism, while known keys still
+   * resolve to the exact types declared above.
    */
   [key: string]: unknown
 }
 
-/** 认识器统一签名：signal/options 在自检路径里可省（service 只传两参）。 */
+/** One signature for every recogniser: signal/options may be omitted on the self-test path (service passes only two arguments). */
 type TranscriberResult = { text: string; audioSeconds?: number; inferenceSeconds?: number }
 type ServerTranscriber = (
   wav: Uint8Array,
@@ -98,7 +99,7 @@ type ServerTranscriber = (
   options?: { record?: boolean }
 ) => Promise<TranscriberResult>
 
-/** /consume 的候选转写：真实转写 + 自检/模拟事件共用这一个形状。 */
+/** A candidate transcript for /consume: real transcripts and self-test/mock events share this shape. */
 interface PendingTranscript extends TranscriptEntry {
   mock?: boolean
   selftest?: boolean
@@ -111,20 +112,20 @@ interface SelftestTranscript extends PendingTranscript {
   source: string
 }
 
-/** listDevices --list 模式扫到的候选遥控器。 */
+/** A candidate remote found by listDevices in --list mode. */
 interface ListedDevice {
   id: string
   name: string
   connected: boolean
 }
 
-/** 竞争桥进程表条目。 */
+/** Entry in the process table used to spot competing bridges. */
 interface Competitor {
   pid: number
   command: string
 }
 
-/** 事件环条目：payload 原样进 JSON，不做类型裁剪。 */
+/** Event-ring entry: payload goes into JSON as-is, with no type trimming. */
 interface DaemonEvent {
   seq: number
   type: string
@@ -132,16 +133,16 @@ interface DaemonEvent {
   payload: unknown
 }
 
-/** 命令行参数（--port / --state-dir / --parent-pid）。 */
+/** CLI arguments (--port / --state-dir / --parent-pid). */
 interface CliArgs {
   port?: number
   stateDir?: string
   parentPid?: number
 }
 
-// 以下是「没有型号 profile 匹配」时的回退常量；有 profile 时按键默认改由
-// profile.defaultKeyMap / profile.hidKeys 按当前型号派生（见 mergeConfig）。
-// 两层 merge：型号默认 ← 用户 settings.json（用户配置永远压过型号默认）。
+// Fallback constants used when no model profile matches; with a profile the key defaults are
+// derived per model from profile.defaultKeyMap / profile.hidKeys (see mergeConfig).
+// Two-layer merge: model defaults ← user settings.json (user config always wins).
 export const DEFAULT_KEY_MAP: NormalizedKeyMap = {
   Enter: { single: 'submit' },
   ContextMenu: { single: 'stop' },
@@ -149,29 +150,30 @@ export const DEFAULT_KEY_MAP: NormalizedKeyMap = {
   Backquote: { single: 'swallow' },
   F5: { single: 'swallow' },
   Back: { single: 'stop' },
-  // Chromecast 的输入源键：系统不认这个 HID usage，按下去 macOS 什么都不做，
-  // 所以它是整台遥控器上唯一干净的「第二功能键」。单击开新会话。
+  // The Chromecast input-source key: the system does not know this HID usage, so macOS does
+  // nothing when it is pressed — the only clean "second function key" on the whole remote.
+  // Single press opens a new session.
   InputSource: { single: 'new-session' }
 }
 
 /** Keys the DOM never delivers — the only ones the native HID reader forwards. */
 export const DEFAULT_HID_KEYS = [
-  // 小米蓝牙语音遥控器：Back、音量走 page 0x07
+  // Xiaomi BT Remote 2: Back and volume arrive on page 0x07
   'Back',
   'AudioVolumeUp',
   'AudioVolumeDown',
   'AudioVolumeMute',
-  // Chromecast with Google TV 遥控器：主集合是 page 0x0C（Consumer Control），
-  // 有独立的确认键与方向键（小米那边中键就是语音键，不会产生这些 code）。
+  // Chromecast with Google TV remote: the primary collection is page 0x0C (Consumer Control),
+  // with a separate OK key and d-pad (on the Xiaomi the middle key is the voice key, so these codes never appear).
   'Enter',
   'Home',
   'ArrowUp',
   'ArrowDown',
   'ArrowLeft',
   'ArrowRight',
-  // 专用键：默认只做「识别可得」，不预置任何动作——Power 会被 macOS 直接
-  // 消费（按下去就锁屏/睡眠），媒体键会被系统当媒体键处理，绑 Hermes 动作
-  // 只会让「想用遥控器」变成「把电脑锁了」。
+  // Dedicated keys: recognised but deliberately unbound — macOS consumes Power itself (pressing
+  // it locks/sleeps the machine) and treats media keys as media keys, so binding Hermes actions to
+  // them would turn "use the remote" into "lock my computer".
   'Power',
   'InputSource',
   'Netflix',
@@ -199,7 +201,7 @@ const DEFAULTS: Config = {
   sttApiKey: '',
   deviceId: '',
   deviceName: '',
-  // 按键归属：'active' = 只有当前生效那台管事（默认）；'any' = 两台都认。
+  // Key ownership: 'active' = only the currently active remote counts (default); 'any' = both count.
   keyFilter: 'active',
   modelDir: '',
   vadModel: '',
@@ -243,7 +245,7 @@ const BRIDGE_PATH = resolvePath(
 
 mkdirSync(STATE_DIR, { recursive: true })
 
-/** 读 JSON；失败/缺失一律回退。返回值是未收窄的外部输入，调用点各自做收窄。 */
+/** Read JSON; any failure or missing file falls back. The value is un-narrowed external input, so each call site narrows it. */
 function readJson(file: string, fallback: unknown): unknown {
   try {
     return JSON.parse(readFileSync(file, 'utf8'))
@@ -285,18 +287,18 @@ const startedAt = Date.now()
 /** First run: inherit the DSH settings/device the user already tuned. */
 function seedFromDsh(): void {
   if (!existsSync(SETTINGS_FILE) && existsSync(DSH_SETTINGS)) {
-    // JSON 输入：字段访问与原 JS 的裸访问一致（对象才会有 values 字段，标量上读字段返回 undefined）。
+    // JSON input: field access matches the original JS's bare access (only objects have a values field; on a scalar it is undefined).
     const seeded = readJson(DSH_SETTINGS, null) as Record<string, unknown> | null
     if (seeded && typeof seeded.values === 'object' && seeded.values !== null) {
       writeJsonAtomic(SETTINGS_FILE, { version: 1, values: seeded.values, seededFrom: DSH_SETTINGS })
-      log(`已从 DSH 迁移设置 ${DSH_SETTINGS}`)
+      log(`migrated settings from DSH ${DSH_SETTINGS}`)
     }
   }
   if (!existsSync(DEVICE_FILE) && existsSync(DSH_DEVICE)) {
     const device = readJson(DSH_DEVICE, null) as Record<string, unknown> | null
     if (device && typeof device.id === 'string' && device.id) {
       writeJsonAtomic(DEVICE_FILE, device)
-      log(`已从 DSH 迁移上次设备 ${device.name ?? device.id}`)
+      log(`migrated last device from DSH ${device.name ?? device.id}`)
     }
   }
 }
@@ -308,16 +310,16 @@ function savedValues(): Record<string, unknown> {
 }
 
 function mergeConfig(values: Record<string, unknown>): Config {
-  // 按键默认按「当前型号」派生：profile.defaultKeyMap / profile.hidKeys。
-  // 两层 merge —— 型号默认 ← 用户 settings.json（用户显式配置压过型号默认）。
-  // 未登记/没有型号匹配时退回 DEFAULT_KEY_MAP / DEFAULT_HID_KEYS 常量。
+  // Key defaults are derived from the *current model*: profile.defaultKeyMap / profile.hidKeys.
+  // Two-layer merge — model defaults ← user settings.json (explicit user config wins).
+  // With no registry entry / no matching model, fall back to the DEFAULT_KEY_MAP / DEFAULT_HID_KEYS constants.
   const wantedName = (device && device.name) || (typeof values.deviceName === 'string' ? values.deviceName : '')
   const profile = wantedName ? profileForDeviceName(registry, wantedName) : null
   const baseKeyMap = profile ? profile.defaultKeyMap : DEFAULT_KEY_MAP
   const baseHidKeys = profile && profile.hidKeys.length > 0 ? [...profile.hidKeys] : [...DEFAULT_HID_KEYS]
 
-  // values 是 settings.json 的原文（可能带任意键/任意类型），与原 JS 一样全量摊进
-  // config，再由下面的归一化循环收窄；cast 不改变运行时的任何值。
+  // values is raw settings.json (arbitrary keys/types): it is spread into config as in the original
+  // JS, then narrowed by the normalisation loop below; the cast changes no runtime value.
   const config: Config = { ...DEFAULTS, ...(values as Config) }
   config.keyMap = { ...normalizeKeyMap(baseKeyMap), ...normalizeKeyMap(values.keyMap) }
   config.phrases = normalizePhrases(config.phrases)
@@ -361,7 +363,7 @@ function normalizeSlot(slot: unknown): NormalizedSlot | undefined {
     return undefined
   }
   if (typeof slot === 'object' && !Array.isArray(slot)) {
-    // JSON 对象的字段访问：cast 仅用于类型收窄，运行时与原 JS 的裸访问完全一致。
+    // Field access on a JSON object: the cast is only for narrowing; at runtime it matches the original JS's bare access.
     const fields = slot as Record<string, unknown>
     if (fields.action === 'phrase' && typeof fields.name === 'string' && fields.name.trim()) {
       return { action: 'phrase', name: fields.name.trim() }
@@ -372,7 +374,7 @@ function normalizeSlot(slot: unknown): NormalizedSlot | undefined {
 }
 
 function normalizeKeyMap(raw: unknown): NormalizedKeyMap {
-  // 只做归一化，不做默认值兜底——keyMap 的默认层在 mergeConfig 里按型号派生。
+  // Normalisation only, no defaulting — keyMap defaults are derived per model in mergeConfig.
   const out: NormalizedKeyMap = {}
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
   for (const [code, binding] of Object.entries(source)) {
@@ -400,7 +402,7 @@ function validatePhraseRefs(keyMap: NormalizedKeyMap, phrases: Record<string, st
     for (const slot of ['single', 'double', 'long'] as const) {
       const value = binding?.[slot]
       if (value && typeof value === 'object' && value.action === 'phrase' && !(value.name in phrases)) {
-        throw new Error(`按键 ${code} 的 ${slot} 引用了不存在的常用语「${value.name}」`)
+        throw new Error(`key ${code} ${slot} references unknown phrase "${value.name}"`)
       }
     }
   }
@@ -441,8 +443,8 @@ function openAiTranscriber(config: Config): ServerTranscriber {
   const url = baseUrl.includes('/audio/transcriptions') ? baseUrl : `${baseUrl}/audio/transcriptions`
   return async (wav, signal) => {
     const form = new FormData()
-    // TS 5.7+ 的 Uint8Array<ArrayBufferLike> 与 BlobPart 的 ArrayBuffer 约束不兼容；
-    // 这里是同一个值的类型收窄（cast 无运行时效果），字节内容与原 JS 完全一致。
+    // TS 5.7+ Uint8Array<ArrayBufferLike> does not satisfy BlobPart's ArrayBuffer constraint;
+    // this narrows the same value (the cast has no runtime effect), so the bytes match the original JS exactly.
     form.append('file', new Blob([wav as BlobPart], { type: 'audio/wav' }), 'utterance.wav')
     form.append('model', config.sttModel || 'whisper-1')
     if (config.language) form.append('language', config.language)
@@ -454,11 +456,11 @@ function openAiTranscriber(config: Config): ServerTranscriber {
     })
     if (!response.ok) {
       const detail = (await response.text().catch(() => '')).slice(0, 300)
-      throw new Error(`识别服务 ${response.status}: ${detail || response.statusText}`)
+      throw new Error(`recognition service ${response.status}: ${detail || response.statusText}`)
     }
-    // fetch().json() 的返回值是未收窄的外部输入；这里的检查与原 JS 完全一致。
+    // fetch().json() returns un-narrowed external input; these checks match the original JS exactly.
     const payload = (await response.json()) as { text?: unknown } | null | undefined
-    if (typeof payload?.text !== 'string') throw new Error('识别服务没有返回 text')
+    if (typeof payload?.text !== 'string') throw new Error('recognition service returned no text')
     return { text: payload.text }
   }
 }
@@ -474,11 +476,11 @@ function transcriberFor(config: Config): ServerTranscriber {
   if (!local.paths.ok) {
     return async () => {
       throw new Error(
-        `未配置语音识别：本地 SenseVoice 模型缺失（${local.paths.problems.join('；')}），也没有填识别服务地址`
+        `no speech recognition configured: local SenseVoice model missing (${local.paths.problems.join('; ')}), and no recognition service URL set`
       )
     }
   }
-  // record:false 用于自检——自检不该把"上一句真实录音"覆盖成测试音频。
+  // record:false is for the self-test — a self-test must not overwrite "the last real recording" with test audio.
   return async (wav, signal, options = {}) => {
     if (signal?.aborted) throw new Error('aborted')
     if (options.record !== false) {
@@ -494,10 +496,10 @@ function transcriberFor(config: Config): ServerTranscriber {
 
 /* ────────────────────────── service ────────────────────────── */
 
-/* ── 设备型号注册表 ──────────────────────────────────────────────────
- * 一个型号 = 一个 JSON（内置 sidecar/devices/*.json，用户自己的型号放
- * <STATE_DIR>/devices/，同名 id 覆盖内置）。新增遥控器型号 = 丢一个 JSON +
- * POST /devices/reload，不改代码、不重启守护进程。
+/* ── device model registry ───────────────────────────────────────────
+ * One model = one JSON (built-in under sidecar/devices/*.json, user models under
+ * <STATE_DIR>/devices/, same id overrides the built-in). Adding a remote model = drop in a JSON +
+ * POST /devices/reload — no code change, no daemon restart.
  */
 const DEVICES_DIR = join(STATE_DIR, 'devices')
 let registry = loadDeviceProfiles({ userDir: DEVICES_DIR })
@@ -505,7 +507,7 @@ let registry = loadDeviceProfiles({ userDir: DEVICES_DIR })
 seedFromDsh()
 const cachedDevice = readJson(DEVICE_FILE, null) as Record<string, unknown> | null
 
-/** 桥真实连上的那台（启动时用缓存垫底）；rememberDevice 随桥的上报更新。 */
+/** The one the bridge really connected to (seeded from cache at boot); rememberDevice updates it as the bridge reports. */
 let device: { id: string; name: string } | null =
   cachedDevice && typeof cachedDevice.id === 'string'
     ? { id: cachedDevice.id, name: (cachedDevice.name ?? '') as string }
@@ -514,29 +516,30 @@ let device: { id: string; name: string } | null =
 let config = mergeConfig(savedValues())
 
 /**
- * 当前型号：优先桥上报的设备名（它才是「谁在连」的真相），桥还没上报时看配置里的
- * 目标名。名字匹配不到任何 profile → null：未登记的型号照样能用，只是没有型号默认键。
+ * Current model: prefer the device name the bridge reports (it is the truth about "who is connected");
+ * before the bridge reports, use the target name from config. A name matching no profile → null: an
+ * unregistered model still works, it just has no model key defaults.
  */
 function currentProfile() {
   const name = (device && device.name) || config.deviceName || ''
   return name ? profileForDeviceName(registry, name) : null
 }
 
-/** 按键查表：型号注册表优先，内置 hidUsageToCode 兜底（保持旧型号/未登记键的旧行为）。 */
+/** Key lookup: model registry first, built-in hidUsageToCode as fallback (keeps old behaviour for old/unregistered keys). */
 function resolveCode(page: number, usage: number): string | null {
   return codeFor(registry, page, usage) || hidUsageToCode(page, usage)
 }
 
-/** 当前 keyMap/hidKeys 是按哪个型号派生的；型号切换时重算（syncProfileDefaults）。 */
+/** Which model the current keyMap/hidKeys were derived from; recomputed when the model switches (syncProfileDefaults). */
 let appliedProfileId = currentProfile()?.id ?? null
 
-/** 未登记型号只提示一次，不做任何过滤、不重置 keyMap。 */
+/** An unregistered model is noted only once; no filtering, no keyMap reset. */
 const unknownProfilesNoted = new Set<string>()
 noteUnknownProfile((device && device.name) || '')
 
 const buildLocal = () =>
   createSenseVoiceTranscriber({
-    // 未配置 = falsy：null/undefined 在 sensevoice 里走同一条 env/默认值回退路径。
+    // Unset = falsy: null/undefined take the same env/default fallback path inside sensevoice.
     modelDir: config.modelDir || undefined,
     vadModel: config.vadModel || undefined,
     modelFile: config.modelFile || undefined,
@@ -547,17 +550,17 @@ const buildLocal = () =>
 let local = buildLocal()
 
 /**
- * 桥的启动参数必须**原地**重算（push/splice，不能换数组）。
- * SidecarTransport 在构造时就持有这个数组的引用，换一个新数组它读不到——
- * 实测症状：切设备后桥确实重启了，却依旧连回上一台。
+ * Bridge arguments must be recomputed **in place** (push/splice, never a new array).
+ * SidecarTransport holds this array by reference from construction and cannot see a replacement —
+ * observed symptom: after a device switch the bridge really restarted, yet reconnected to the previous device.
  */
 const bridgeArgs: string[] = ['--hid']
 function refreshBridgeArgs(): string[] {
   const wantedId = config.deviceId || (cachedDevice && typeof cachedDevice.id === 'string' ? cachedDevice.id : '')
   bridgeArgs.length = 0
   bridgeArgs.push('--hid')
-  // HID 旁听白名单来自型号注册表：每个 pair 一个 --hid-device，pages 是所有型号
-  // 声明的并集。新增遥控器型号只要丢一个 JSON，这里自动带上，不用改代码。
+  // The HID listen whitelist comes from the model registry: one --hid-device per pair, pages is the
+  // union declared by all models. A new remote model only needs a JSON; the rest is automatic.
   for (const pair of hidPairsOf(registry)) bridgeArgs.push('--hid-device', pair)
   const pages = pagesOf(registry)
   if (pages.length > 0) bridgeArgs.push('--hid-pages', pages.map(page => `0x${page.toString(16)}`).join(','))
@@ -573,16 +576,17 @@ const transport = new SidecarTransport({
   onLog: message => log(`[bridge] ${message}`)
 })
 
-/** 未登记型号的提示：只记一次日志，不做任何过滤、不重置 keyMap（未知遥控器照常工作）。 */
+/** Unregistered-model notice: log once, no filtering, no keyMap reset (unknown remotes keep working). */
 function noteUnknownProfile(name: string): void {
   if (!name || currentProfile() || unknownProfilesNoted.has(name)) return
   unknownProfilesNoted.add(name)
-  log(`未登记的型号 device=${name}，把它加进 ${DEVICES_DIR}/xxx.json`)
+  log(`unregistered model device=${name}, add it as ${DEVICES_DIR}/xxx.json`)
 }
 
 /**
- * 当前型号切换 → keyMap/hidKeys 按新型号重算（settings.json 里的显式配置仍压过型号默认）。
- * 未登记型号时不动 keyMap：没有可用的型号默认，保持现状最安全。
+ * Model switched → recompute keyMap/hidKeys for the new model (explicit settings.json config still wins).
+ * For an unregistered model leave keyMap alone: there are no usable model defaults, so keeping the
+ * current state is the safest option.
  */
 function syncProfileDefaults(): void {
   const profile = currentProfile()
@@ -590,7 +594,7 @@ function syncProfileDefaults(): void {
   appliedProfileId = profile.id
   config = mergeConfig(savedValues())
   applyConfigToRuntime()
-  log(`按键默认已按型号「${profile.label}」（${profile.id}）派生，settings.json 里的配置仍优先`)
+  log(`key defaults derived from model "${profile.label}" (${profile.id}); settings.json config still wins`)
 }
 
 function rememberDevice(next: { id?: string; name?: string } | null | undefined): void {
@@ -599,7 +603,7 @@ function rememberDevice(next: { id?: string; name?: string } | null | undefined)
   try {
     writeJsonAtomic(DEVICE_FILE, { id: device.id, name: device.name, at: Date.now() })
   } catch (error) {
-    log(`写入设备缓存失败: ${error instanceof Error ? error.message : String(error)}`)
+    log(`failed to write device cache: ${error instanceof Error ? error.message : String(error)}`)
   }
   noteUnknownProfile(device.name)
   syncProfileDefaults()
@@ -612,17 +616,17 @@ transport.on('ready', rememberDevice)
 
 const service = new RemoteMicService({
   transport,
-  // 'active' 模式下用来判断谁是「当前那台」：优先桥真实连上的设备名
-  // （device 由桥的 device 事件更新），桥还没 ready 时退回配置里的目标名。
+  // In 'active' mode this decides who "the current one" is: prefer the device name the bridge really
+  // connected to (device is updated by the bridge's device events); before ready, fall back to the configured target name.
   targetDeviceName: () => (device && device.name) || config.deviceName || '',
-  // 动态读配置，改 keyFilter 不需要重启（applyPatch 直接生效）。
+  // Config is read dynamically: changing keyFilter needs no restart (applyPatch takes effect immediately).
   keyFilter: () => config.keyFilter || 'active',
-  // 按键查表：型号注册表优先、内置表兜底（POST /devices/reload 换注册表后立即生效）。
+  // Key lookup: model registry first, built-in table as fallback (effective immediately after POST /devices/reload).
   resolveCode,
   transcribe: transcriberFor(config),
   preflight: () => {
     if (!existsSync(BRIDGE_PATH)) {
-      return `找不到蓝牙桥 ${BRIDGE_PATH}（重新安装插件即可修好）`
+      return `Bluetooth bridge not found at ${BRIDGE_PATH} (reinstalling the plugin fixes this)`
     }
     try {
       if ((statSync(BRIDGE_PATH).mode & 0o111) === 0) chmodSync(BRIDGE_PATH, 0o755)
@@ -658,7 +662,7 @@ service.on('transcript', entry => {
   log(`[stt] ${entry.text.slice(0, 120)}`)
 })
 service.on('error', ({ message }) => {
-  log(`[stt] 失败: ${message}`)
+  log(`[stt] failed: ${message}`)
   pushEvent('error', { message })
 })
 service.on('notice', notice => {
@@ -666,23 +670,24 @@ service.on('notice', notice => {
   pushEvent('notice', notice)
 })
 
-/* ── 蓝牙授权看门狗 ──────────────────────────────────────────────────────
- * CoreBluetooth 的 delegate 在 TCC 未授权时永远不会回调：桥进程活着、日志停在
- * "atvv-link started"、服务卡在 starting。这个状态在界面上和"遥控器在睡觉"长得
- * 一模一样，但修法完全不同，所以这里主动区分，并把结论写进 /state.detail 与错误事件。
- * 判定依据：桥上线后 8 秒内一个 state 事件都没收到（授权正常时它开机即发）。
+/* ── Bluetooth authorisation watchdog ────────────────────────────────
+ * CoreBluetooth's delegate never calls back when TCC has not granted Bluetooth: the bridge process is
+ * alive, the log stops at "atvv-link started", and the service sits in starting. In the UI that looks
+ * exactly like "the remote is asleep", but the fix is completely different, so we tell them apart here
+ * and put the verdict into /state.detail and into an error event. Criterion: no state event arrives
+ * within 8 seconds of the bridge coming up (with permission granted it sends one at boot).
  */
 let bridgeStateSeen = false
 let clockState: string | null = null
 transport.on('state', ({ state }) => {
   bridgeStateSeen = true
   clockState = state
-  void clockState // 原 JS 里 clockState 写后不读；此处读一次满足 noUnusedLocals，无行为影响
-  log(`[bridge] 蓝牙状态 ${state}`)
+  void clockState // the original JS never read clockState after writing it; one read satisfies noUnusedLocals, no behaviour change
+  log(`[bridge] bluetooth state ${state}`)
 })
 
 const BLUETOOTH_AUTH_HINT =
-  '蓝牙未就绪：macOS 没有给本进程蓝牙权限（系统设置 ▸ 隐私与安全性 ▸ 蓝牙，勾选 Hermes / osascript 后重启 Hermes），或系统蓝牙被关闭'
+  'Bluetooth not ready: macOS has not granted this process Bluetooth permission (System Settings ▸ Privacy & Security ▸ Bluetooth — tick Hermes / osascript, then restart Hermes), or system Bluetooth is off'
 
 function armAuthWatch(): void {
   const timer = setTimeout(() => {
@@ -705,7 +710,7 @@ function appendHistory(entry: TranscriptEntry): void {
     const kept = existing.slice(-config.historyLimit)
     writeFileSync(HISTORY_FILE, `${kept.join('\n')}\n`, { mode: 0o600 })
   } catch (error) {
-    log(`写入历史失败: ${error instanceof Error ? error.message : String(error)}`)
+    log(`failed to write history: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
@@ -728,19 +733,19 @@ function readHistory(limit = 50): unknown[] {
 /* ────────────────────────── state ────────────────────────── */
 
 /**
- * 最近一次扫描到的候选遥控器。
- * 放进 /state 而不是只靠 /devices，是因为网关里已挂载的 router 不会热重扫：
- * 新加的路由在应用重启前一直 404，而 /state 早就挂着了。自动扫描 + 缓存让
- * 「切换遥控器」在旧网关上也能用。
+ * The candidate remotes from the most recent scan.
+ * They live in /state rather than only /devices because routers already mounted in the gateway do not
+ * rescan: a newly added route 404s until the app restarts, while /state was mounted long ago. Auto-scan
+ * plus cache keeps "switch remote" working on an old gateway.
  */
 let knownDevices: ListedDevice[] = []
 let knownDevicesAt = 0
 
 function snapshot() {
   const profile = currentProfile()
-  // 只暴露「当前型号真的会发」的键：settings.json 里可能留着上一台遥控器的
-  // 默认（如小米模式下残留 Enter/InputSource）。页面按这份视图渲染就不会
-  // 出现「当前是小米却列出 Chromecast 键」。全量仍保留在 keys.stored 里备查。
+  // Expose only the keys the *current model* really sends: settings.json may still hold the previous
+  // remote's defaults (e.g. leftover Enter/InputSource in Xiaomi mode). Rendering this view keeps the page
+  // from showing "Chromecast keys while the current remote is a Xiaomi". The full map stays in keys.stored.
   const profileCodes = profile ? new Set(keysOfProfile(profile)) : null
   const visibleKeyMap = profileCodes
     ? Object.fromEntries(Object.entries(config.keyMap).filter(([code]) => profileCodes.has(code)))
@@ -833,10 +838,10 @@ function editable(current: Config) {
 const EDITABLE_KEYS = new Set(Object.keys(editable(DEFAULTS)))
 
 function applyPatch(patch: unknown) {
-  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('patch 必须是对象')
-  // 收窄到字段表：cast 不改变运行时值（等同原 JS 的裸传 patch），下面的检查逐条一致。
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('patch must be an object')
+  // Narrow to the field table: the cast changes no runtime value (same as the original JS passing patch through); the checks below are identical.
   const unknown = Object.keys(patch).filter(key => !EDITABLE_KEYS.has(key))
-  if (unknown.length > 0) throw new Error(`未知配置项: ${unknown.join(', ')}`)
+  if (unknown.length > 0) throw new Error(`unknown config keys: ${unknown.join(', ')}`)
   const normalized = mergeConfig({ ...savedValues(), ...pickSaved(patch as Record<string, unknown>) })
   validatePhraseRefs(normalized.keyMap, normalized.phrases)
 
@@ -852,18 +857,18 @@ function applyPatch(patch: unknown) {
   if (['modelDir', 'vadModel', 'modelFile', 'precision'].some(key => key in patch)) {
     local.dispose()
     local = buildLocal()
-    log(`识别模型已切换: ${local.paths.model || '（缺失）'} · ${local.paths.precision || '?'}`)
+    log(`recognition model switched: ${local.paths.model || '(missing)'} · ${local.paths.precision || '?'}`)
   }
   applyConfigToRuntime()
   // A different remote means the bridge has to be re-spawned with new filters.
   if (`${config.deviceId}\u0000${config.deviceName}` !== previousDevice) {
     refreshBridgeArgs()
-    log(`桥参数已更新: ${bridgeArgs.join(' ')}`)
-    // 旧设备的缓存会盖住「谁在连」的判断，切换时先指向新目标，等桥自己上报覆盖。
+    log(`bridge arguments updated: ${bridgeArgs.join(' ')}`)
+    // The stale device cache would mask the "who is connected" decision, so aim at the new target now and let the bridge overwrite it.
     device = config.deviceId ? { id: config.deviceId, name: config.deviceName || '' } : device
-    void service.restart().catch(error => log(`按新设备重启失败: ${error instanceof Error ? error.message : String(error)}`))
+    void service.restart().catch(error => log(`restart for new device failed: ${error instanceof Error ? error.message : String(error)}`))
   }
-  log(`设置已更新: ${Object.keys(patch).join(', ') || '空补丁'}`)
+  log(`settings updated: ${Object.keys(patch).join(', ') || 'empty patch'}`)
   return editable(config)
 }
 
@@ -896,16 +901,16 @@ function resetConfig() {
   local.dispose()
   local = buildLocal()
   applyConfigToRuntime()
-  log('设置已恢复默认')
+  log('settings restored to defaults')
   return editable(config)
 }
 
 /* ────────────────────────── http ────────────────────────── */
 
 /**
- * 列出候选遥控器：桥的 --list 模式只扫描、不建长连接，4 秒足够覆盖
- * 「系统已连接」那一批（retrieveConnectedPeripherals 是即时的）。
- * 注意 child.stdin 必须保持打开——桥把 stdin EOF 当作退出信号。
+ * List candidate remotes: the bridge's --list mode only scans and opens no long-lived connection; 4s
+ * covers the batch that "the system already connected" (retrieveConnectedPeripherals is instant).
+ * Note child.stdin must stay open — the bridge treats stdin EOF as an exit signal.
  */
 function listDevices(seconds = 4): Promise<ListedDevice[]> {
   return new Promise(resolve => {
@@ -916,7 +921,7 @@ function listDevices(seconds = 4): Promise<ListedDevice[]> {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      try { child.kill('SIGKILL') } catch { /* 已退出 */ }
+      try { child.kill('SIGKILL') } catch { /* already exited */ }
       resolve(found)
     }
     const child = spawn(BRIDGE_PATH, ['--list', String(seconds)], { stdio: ['pipe', 'pipe', 'pipe'] })
@@ -929,11 +934,11 @@ function listDevices(seconds = 4): Promise<ListedDevice[]> {
         const line = buffer.slice(0, index)
         buffer = buffer.slice(index + 1)
         if (!line.trim()) continue
-        // 桥的 stdout 是 JSON lines；cast 只做类型收窄，坏行的行为（含 null 行的
-        // TypeError）与原 JS 完全一致。
+        // The bridge's stdout is JSON lines; the cast only narrows types, and bad lines (including the
+        // TypeError from a null line) behave exactly as in the original JS.
         let event: Record<string, unknown> | undefined
         try { event = JSON.parse(line) as Record<string, unknown> } catch { continue }
-        if (event === undefined) continue // JSON.parse 不可能返回 undefined，此行仅用于明确赋值分析
+        if (event === undefined) continue // JSON.parse cannot return undefined; this line only helps definite-assignment analysis
         if (event.event === 'candidate' && event.id && !seen.has(event.id)) {
           seen.add(event.id)
           found.push({ id: String(event.id), name: String(event.name || ''), connected: event.connected === true })
@@ -947,8 +952,8 @@ function listDevices(seconds = 4): Promise<ListedDevice[]> {
 }
 
 /**
- * 扫描一次并把结果写进缓存（/state 会带出去）。扫描失败不清空旧结果：
- * 显示上一次看到的设备，比显示空列表更有用。
+ * Scan once and write the result into the cache (/state carries it out). A failed scan does not clear
+ * the old result: showing the devices seen last time beats showing an empty list.
  */
 let scanningDevices = false
 async function refreshDevices(seconds = 3): Promise<ListedDevice[]> {
@@ -990,7 +995,7 @@ function readBody(req: IncomingMessage, limit = 64 * 1024): Promise<Record<strin
     req.on('data', (chunk: Buffer) => {
       size += chunk.length
       if (size > limit) {
-        reject(new Error('请求体过大'))
+        reject(new Error('request body too large'))
         req.destroy()
         return
       }
@@ -999,21 +1004,21 @@ function readBody(req: IncomingMessage, limit = 64 * 1024): Promise<Record<strin
     req.on('end', () => {
       if (chunks.length === 0) return resolve({})
       try {
-        // 请求体是外部输入：cast 只做类型收窄，非对象 JSON 的行为与原 JS 一致
-        // （例如 POST /config 传 null 时照旧在 body.reset 上抛 TypeError）。
+        // The request body is external input: the cast only narrows types, and non-object JSON behaves as in
+        // the original JS (e.g. POST /config with null still throws a TypeError on body.reset).
         resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>)
       } catch (error) {
-        reject(new Error(`JSON 解析失败: ${error instanceof Error ? error.message : String(error)}`))
+        reject(new Error(`JSON parse failed: ${error instanceof Error ? error.message : String(error)}`))
       }
     })
     req.on('error', reject)
   })
 }
 
-/* ── 竞争桥检测 ─────────────────────────────────────────────────────────
- * DSH 的 remote-mic（或另一个 Hermes profile）也会跑一份 atvv-link，抢同一台遥控器的
- * ATVV 连接：表现是连上就掉（link lost）、或者收到的音频断断续续。这里直接看进程表，
- * 把"另一个桥在跑"写进 /state.competitors，页面据此提示关掉另一份。
+/* ── competing bridge detection ──────────────────────────────────────
+ * DSH's remote-mic (or another Hermes profile) also runs an atvv-link and fights over the same
+ * remote's ATVV connection: the symptom is connect-then-drop (link lost), or choppy audio. We read the
+ * process table directly and put "another bridge is running" into /state.competitors so the page can ask the user to close it.
  */
 let competitorCache: { at: number; list: Competitor[] } = { at: 0, list: [] }
 function findCompetingBridges(): Competitor[] {
@@ -1030,8 +1035,8 @@ function findCompetingBridges(): Competitor[] {
         const command = rest.join(' ')
         return { pid: Number(pid), command }
       })
-      // 只看 argv[0] 真的是 atvv-link 的进程：命令行里带上这个字符串的（比如我们自己
-      // 的 pgrep/grep 命令）不算竞争。
+      // Only processes whose argv[0] really is atvv-link count: a process that merely has the string on
+      // its command line (our own pgrep/grep, say) is not a competitor.
       .filter(item => {
         const argv0 = item.command.split(/\s+/)[0] || ''
         return Number.isFinite(item.pid) && item.pid !== process.pid && /\/atvv-link$/.test(argv0) && !argv0.includes(BRIDGE_PATH)
@@ -1043,14 +1048,15 @@ function findCompetingBridges(): Competitor[] {
   return list
 }
 
-/* ── 守护：服务不该"自己"停在 stopped ────────────────────────────────────
- * 只有用户显式点「停止监听」（/stop）才允许长期 stopped；其他路径掉到 stopped
- * （历史事件、别的进程调用、UI 误触）都会让整条链路静默失效，第二天看起来像"插件坏了"。
+/* ── supervisor: the service must not stop "by itself" ───────────────
+ * Only an explicit user "stop listening" (/stop) may leave it stopped long-term; any other path into
+ * stopped (a history event, another process calling in, a stray UI click) silently breaks the whole
+ * chain and the next day it looks like "the plugin is broken".
  */
 let userStopped = false
 let supervisorTimer: NodeJS.Timeout | null = null
-// 所有 start/restart 串行化：listen 回调的 autoStart、runtime 的 POST /start、supervisor
-// 三方同时到达时，transport 会各自 spawn 一份桥，两份桥抢同一台遥控器的连接。
+// Serialise every start/restart: when the listen callback's autoStart, runtime's POST /start and the
+// supervisor all arrive together, the transport would spawn one bridge each and both would fight over the same remote.
 let lifecycleGate: Promise<void> = Promise.resolve()
 function serialize(fn: () => Promise<void>): Promise<void> {
   const next = lifecycleGate.then(fn, fn)
@@ -1062,8 +1068,8 @@ function startSupervisor(): void {
   supervisorTimer = setInterval(() => {
     if (!config.autoStart || userStopped) return
     if (service.state !== 'stopped') return
-    log('[supervisor] 服务处于 stopped（非用户主动停止），自动重新连接')
-    void serialize(() => service.start()).catch(error => log(`[supervisor] 重启失败: ${error instanceof Error ? error.message : String(error)}`))
+    log('[supervisor] service is stopped (not by the user), reconnecting automatically')
+    void serialize(() => service.start()).catch(error => log(`[supervisor] restart failed: ${error instanceof Error ? error.message : String(error)}`))
   }, 15_000)
   if (typeof supervisorTimer.unref === 'function') supervisorTimer.unref()
 }
@@ -1083,23 +1089,24 @@ const server = createServer(async (req, res) => {
         return json(res, 200, snapshot())
 
       case 'GET /devices': {
-        // 有第二台遥控器（Chromecast / Google TV 等）以后，界面需要知道
-        // 「系统里还有哪些 ATVV 设备」，再让用户切换。扫描是只读的，不影响当前链路。
+        // With a second remote (Chromecast / Google TV etc.) the UI needs to know which other ATVV
+        // devices the system has, so the user can switch. The scan is read-only and does not touch the live link.
         const seconds = Math.max(2, Math.min(10, Number(url.searchParams.get('seconds') || 4)) || 4)
         const devices = await refreshDevices(seconds)
         return json(res, 200, { devices, current: device, at: knownDevicesAt || Date.now() })
       }
 
       case 'POST /devices/reload': {
-        // 热插拔型号：重读内置 + 用户型号目录。注册表换新、桥参数原地刷新；
-        // 当前型号或桥参数变了才重启链路（service.restart 只重启桥，不动守护进程）。
+        // Hot-swap models: re-read the built-in and user model directories. The registry is replaced and the
+        // bridge arguments refreshed in place; the link restarts only if the current model or the arguments changed
+        // (service.restart only restarts the bridge, never the daemon).
         const beforeId = currentProfile()?.id ?? null
         const beforeArgs = bridgeArgs.join(' ')
         registry = loadDeviceProfiles({ userDir: DEVICES_DIR })
         refreshBridgeArgs()
         const profile = currentProfile()
         if (profile) {
-          // 已登记型号：按键默认按新注册表重算；settings.json 里的 keyMap/hidKeys 仍压过型号默认。
+          // Registered model: recompute key defaults from the new registry; keyMap/hidKeys in settings.json still win.
           config = mergeConfig(savedValues())
           appliedProfileId = profile.id
           applyConfigToRuntime()
@@ -1110,7 +1117,7 @@ const server = createServer(async (req, res) => {
         if (restarted) {
           await serialize(() => service.restart())
         }
-        log(`设备型号已重载：${registry.profiles.length} 个型号，当前=${afterId || '未登记'}${afterId !== beforeId ? '（型号已切换）' : ''}${argsChanged ? '，桥参数已更新' : ''}`)
+        log(`device models reloaded: ${registry.profiles.length} profiles, current=${afterId || 'unregistered'}${afterId !== beforeId ? ' (model switched)' : ''}${argsChanged ? ', bridge arguments updated' : ''}`)
         return json(res, 200, {
           ok: true,
           profileId: afterId,
@@ -1122,9 +1129,9 @@ const server = createServer(async (req, res) => {
 
       case 'GET /events': {
         const raw = url.searchParams.get('since')
-        // bootAt 让客户端能识别「守护进程重启过」：seq 会回到 1，而客户端的
-        // cursor 还停在旧进程的大数字上，此时 since=37 > head 会一条事件都收不到
-        // （实测表现：按键事件到达事件流，Hermes 里毫无反应）。
+        // bootAt lets the client notice "the daemon restarted": seq goes back to 1 while the client's
+        // cursor still holds the old process's large number, so since=37 > head would return no events at
+        // all (observed symptom: key events reach the event stream and Hermes does nothing).
         const boot = { pid: process.pid, bootAt: startedAt }
         if (raw === null || raw === 'head') return json(res, 200, { ...boot, cursor: seq, head: seq, events: [] })
         const since = Number(raw)
@@ -1143,7 +1150,7 @@ const server = createServer(async (req, res) => {
         // Exercise the recogniser without the remote. Default source is the
         // bundled Chinese sample: a self-test must be deterministic, and the
         // last live utterance may be a cough, a door slam or a 700ms fragment —
-        // transcribing that and reporting "识别成功（空）" tests nothing and, worse,
+        // transcribing that and reporting "recognised OK (empty)" tests nothing and, worse,
         // reads as a broken model. `{"file":"last"}` opts into the last real
         // utterance; `{"file":"/path.wav"}` takes an explicit file. Whenever the
         // chosen source comes back empty we retry the sample once, so an empty
@@ -1152,7 +1159,7 @@ const server = createServer(async (req, res) => {
         const samplePath = join(ROOT, 'assets', 'sample-zh.wav')
         const requested = body?.file ? String(body.file) : ''
         const source = !requested ? samplePath : requested === 'last' ? LAST_WAV : resolvePath(requested)
-        if (!existsSync(source)) return json(res, 404, { error: `没有可用的测试音频：${source}` })
+        if (!existsSync(source)) return json(res, 404, { error: `no test audio available: ${source}` })
         const transcribe = transcriberFor(config)
         const startedAtMs = Date.now()
         const runOnce = async (file: string): Promise<SelftestTranscript> => {
@@ -1182,10 +1189,10 @@ const server = createServer(async (req, res) => {
       }
 
       case 'POST /mock/transcript': {
-        // 没有遥控器也能验证「转写 → 输入框」这一段：造一条与真实转写同形的事件。
+        // Verify "transcript → input box" without a remote: fabricate an event shaped exactly like a real transcript.
         const body = await readBody(req)
         const text = String(body?.text || '').trim()
-        if (!text) throw new Error('缺少 text')
+        if (!text) throw new Error('missing text')
         const entry: PendingTranscript = { text, at: Date.now(), audioSeconds: 0, inferenceSeconds: 0, durationMs: 0, mock: true }
         fallbackPending = entry
         pushEvent('transcript', entry)
@@ -1194,7 +1201,7 @@ const server = createServer(async (req, res) => {
       }
 
       case 'POST /open/settings': {
-        // 一步跳到系统隐私面板：TCC 没给蓝牙权限时桥永远停在 unknown，用户不知道该点哪里。
+        // Jump straight to the system privacy pane: without TCC Bluetooth permission the bridge stays unknown forever and the user has no idea where to click.
         const body = await readBody(req)
         const pane = String(body?.pane || 'bluetooth')
         const targets: Record<string, string> = {
@@ -1202,10 +1209,10 @@ const server = createServer(async (req, res) => {
           microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
         }
         const target = targets[pane]
-        if (!target) throw new Error(`未知面板: ${pane}`)
+        if (!target) throw new Error(`unknown pane: ${pane}`)
         const child = spawn('open', [target], { stdio: 'ignore', detached: true })
         child.unref()
-        log(`已打开系统设置面板：${pane}`)
+        log(`opened system settings pane: ${pane}`)
         return json(res, 200, { ok: true, pane })
       }
 
@@ -1223,33 +1230,33 @@ const server = createServer(async (req, res) => {
 
       case 'POST /stop':
         userStopped = true
-        log(`[http] /stop（${req.headers['user-agent'] || 'unknown'}）`)
+        log(`[http] /stop (${req.headers['user-agent'] || 'unknown'})`)
         await service.stop()
         return json(res, 200, { ok: true, state: service.state })
 
       case 'POST /capture': {
-        // 全链路自检的"窗口"模式：发一次 ATVV 开麦请求（0C 00），然后等 window 内出现的
-        // 第一条 transcript。实测设备只在物理按下语音键时才推流，所以这里必须有人按键；
-        // 好处是不用碰输入框，只验证 链路→解码→识别→事件。
+        // "Window" mode for a full-chain self-test: send one ATVV mic-open request (0C 00), then wait for the
+        // first transcript inside the window. Measured: the device only streams while the voice key is physically
+        // pressed, so a human must press it; the upside is no input box involved — only link→decode→recognise→event.
         const body = await readBody(req).catch((): Record<string, unknown> => ({}))
         const waitMs = Math.max(1500, Math.min(30_000, Number(body?.waitMs) || 12_000))
         if (service.state !== 'ready' && service.state !== 'capturing') {
           userStopped = false
           await serialize(() => service.start())
           const deadlineStart = Date.now()
-          // service.state 是 getter，每毫秒都可能变；cast 解除 TS 基于上一行 if 的过早收窄。
+          // service.state is a getter and can change any millisecond; the cast undoes TS's premature narrowing from the if above.
           while ((service.state as RemoteMicState) !== 'ready' && Date.now() - deadlineStart < 8000) {
             await new Promise(done => setTimeout(done, 150))
           }
         }
         if (service.state !== 'ready') {
-          return json(res, 503, { error: `链路未就绪：${service.state}`, detail: lastDetail })
+          return json(res, 503, { error: `link not ready: ${service.state}`, detail: lastDetail })
         }
         const before = seq
         service.openMicrophone()
-        // 设备只在它自己的语音键被按下时才推流：这里发的开麦命令只是礼貌请求，
-        // 真正的触发仍然要人按一下。所以这是一个"定时窗口"式自检。
-        log(`[capture] 等待语音（请在这 ${Math.round(waitMs / 1000)} 秒内按一次遥控器语音键）`)
+        // The device only streams while its own voice key is held: the mic-open command sent here is a courtesy
+        // request, the real trigger is still a human press. Hence a "timed window" self-test.
+        log(`[capture] waiting for speech (press the remote's voice key within ${Math.round(waitMs / 1000)}s)`)
         const deadline = Date.now() + waitMs
         while (Date.now() < deadline) {
           const hit = events.find(event => event.seq > before && event.type === 'transcript')
@@ -1257,7 +1264,7 @@ const server = createServer(async (req, res) => {
           await new Promise(done => setTimeout(done, 120))
         }
         return json(res, 504, {
-          error: `等待转写超时（${waitMs}ms）`,
+          error: `timed out waiting for a transcript (${waitMs}ms)`,
           state: service.state,
           diagnostics: service.diagnostics
         })
@@ -1265,7 +1272,7 @@ const server = createServer(async (req, res) => {
 
       case 'POST /key': {
         const body = await readBody(req)
-        if (typeof body.code !== 'string' || !body.code) throw new Error('缺少 code')
+        if (typeof body.code !== 'string' || !body.code) throw new Error('missing code')
         pushEvent('key', { code: body.code, down: body.down !== false, source: 'manual' })
         return json(res, 200, { ok: true })
       }
@@ -1288,7 +1295,7 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { ok: true })
 
       case 'GET /audio/last': {
-        if (!existsSync(LAST_WAV)) return json(res, 404, { error: '还没有录音' })
+        if (!existsSync(LAST_WAV)) return json(res, 404, { error: 'no recording yet' })
         const bytes = readFileSync(LAST_WAV)
         res.writeHead(200, {
           'content-type': 'audio/wav',
@@ -1306,41 +1313,41 @@ const server = createServer(async (req, res) => {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    log(`[http] ${req.method} ${url.pathname} 失败: ${message}`)
+    log(`[http] ${req.method} ${url.pathname} failed: ${message}`)
     return json(res, 400, { error: message })
   }
 })
 
 server.listen(PORT, '127.0.0.1', () => {
-  log(`baton daemon 监听 127.0.0.1:${PORT}（state=${STATE_DIR} bridge=${BRIDGE_PATH}）`)
+  log(`baton daemon listening on 127.0.0.1:${PORT} (state=${STATE_DIR} bridge=${BRIDGE_PATH})`)
   process.stdout.write(`${JSON.stringify({ port: PORT, pid: process.pid, stateDir: STATE_DIR })}\n`)
-  // 上一条命留下的桥（守护进程被 SIGKILL、或 pid 复用过）会一直占着遥控器的
-  // ATVV 连接，导致新链接"ready 但收不到音频"。只清我们自己的那份二进制。
+  // A bridge left over from a previous life (daemon SIGKILLed, or pid reuse) keeps holding the remote's
+  // ATVV connection, so the new link is "ready but receives no audio". Clean up only our own binary.
   try {
     execFileSync('pkill', ['-f', `^${BRIDGE_PATH}`], { stdio: 'ignore' })
-    log('已清理残留的 atvv-link 进程')
+    log('cleaned up leftover atvv-link process')
   } catch {
-    /* 没有残留是最常见的情况（pkill 退出码 1） */
+    /* no leftovers is the common case (pkill exit code 1) */
   }
   startSupervisor()
-  // 设备列表：桥连上之后再扫，免得两条 CoreBluetooth 活动撞在一起。
-  // 5 分钟一次足够——遥控器不会频繁插拔，扫描只是为了别让界面显示空白。
+  // Device list: scan after the bridge connects, so two CoreBluetooth activities do not collide.
+  // Every 5 minutes is plenty — remotes are not hot-plugged that often; the scan only keeps the UI from going blank.
   setTimeout(() => {
-    void refreshDevices(3).catch(error => log(`设备扫描失败: ${error instanceof Error ? error.message : String(error)}`))
+    void refreshDevices(3).catch(error => log(`device scan failed: ${error instanceof Error ? error.message : String(error)}`))
   }, 6000)
   const deviceTimer = setInterval(() => {
     void refreshDevices(3).catch(() => undefined)
   }, 5 * 60 * 1000)
   if (typeof deviceTimer.unref === 'function') deviceTimer.unref()
   if (config.autoStart) {
-    void serialize(() => service.start()).catch(error => log(`启动失败: ${error instanceof Error ? error.message : String(error)}`))
+    void serialize(() => service.start()).catch(error => log(`start failed: ${error instanceof Error ? error.message : String(error)}`))
   } else {
-    log('autoStart=false：等待 /start')
+    log('autoStart=false: waiting for /start')
   }
 })
 
 server.on('error', error => {
-  log(`监听失败: ${error.message}`)
+  log(`listen failed: ${error.message}`)
   process.stderr.write(`listen ${PORT} failed: ${error.message}\n`)
   process.exit(3)
 })
@@ -1351,7 +1358,7 @@ let shuttingDown = false
 async function shutdown(reason: string): Promise<void> {
   if (shuttingDown) return
   shuttingDown = true
-  log(`退出: ${reason}`)
+  log(`exit: ${reason}`)
   await service.stop().catch(() => undefined)
   server.close()
   process.exit(0)
@@ -1359,17 +1366,17 @@ async function shutdown(reason: string): Promise<void> {
 
 process.on('SIGTERM', () => void shutdown('SIGTERM'))
 process.on('SIGINT', () => void shutdown('SIGINT'))
-process.on('uncaughtException', error => log(`未捕获异常: ${error?.stack ?? error}`))
-// unhandledRejection 的 reason 在 @types/node 里是 {} | null | undefined；cast 只做
-// 类型收窄，运行时仍是「有 stack 用 stack，否则原样进日志」，与原 JS 一致。
-process.on('unhandledRejection', error => log(`未处理的 Promise: ${(error as { stack?: string } | null | undefined)?.stack ?? error}`))
+process.on('uncaughtException', error => log(`uncaught exception: ${error?.stack ?? error}`))
+// unhandledRejection's reason is {} | null | undefined in @types/node; the cast only
+// narrows the type — at runtime it is still "stack if present, otherwise the value as-is", as in the original JS.
+process.on('unhandledRejection', error => log(`unhandled promise rejection: ${(error as { stack?: string } | null | undefined)?.stack ?? error}`))
 
 if (PARENT_PID > 0) {
   const timer = setInterval(() => {
     try {
       process.kill(PARENT_PID, 0)
     } catch {
-      void shutdown(`父进程 ${PARENT_PID} 已退出`)
+      void shutdown(`parent process ${PARENT_PID} has exited`)
     }
   }, 5000)
   timer.unref?.()

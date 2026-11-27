@@ -1,11 +1,11 @@
 {
   "id": "xiaomi-bt-remote-2",
-  "label": "小米蓝牙语音遥控器 2 / 2 Pro",
+  "label": "Xiaomi BT Remote 2 / 2 Pro",
   "vendor": "Xiaomi",
   "match": {
     "vendorIds": [10007],
     "productIds": [12984],
-    "nameHints": ["小米蓝牙语音遥控器", "Mi Remote", "MiRemote", "Xiaomi"]
+    "nameHints": ["\u5c0f\u7c73\u84dd\u7259\u8bed\u97f3\u9065\u63a7\u5668", "Xiaomi Bluetooth Voice Remote 2", "Mi Remote", "MiRemote", "Xiaomi"]
   },
   "hidPairs": ["0x2717:0x32b8"],
   "pages": [7, 65280],
@@ -16,8 +16,8 @@
   },
   "hidKeys": ["Back", "AudioVolumeUp", "AudioVolumeDown", "AudioVolumeMute"],
   "defaultKeyMap": {
-    "Back": { "single": "stop", "double": { "action": "phrase", "name": "收到" } }
+    "Back": { "single": "stop", "double": { "action": "phrase", "name": "\u6536\u5230" } }
   },
-  "voiceHint": "按住中键（语音键）说话，松手出字",
-  "notes": "固件 2671 实测：Back 走键盘页 0xF1，音量走 0x80/0x81；不通过 HID 上报 Enter，所以按键表里没有 Enter。"
+  "voiceHint": "Hold the centre (voice) key and speak; release to insert the text",
+  "notes": "Measured on firmware 2671: Back arrives on keyboard page 0xF1, volume on 0x80/0x81; Enter is never reported over HID, so the key table has no Enter."
 }

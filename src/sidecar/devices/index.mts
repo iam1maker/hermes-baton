@@ -1,30 +1,30 @@
-// 遥控器型号注册表 —— 插件里唯一需要「懂某台遥控器」的地方。
+// Remote model registry — the only place in the plugin that needs to "know" a particular remote.
 //
-// 一个型号 = 一个 JSON（sidecar/devices/*.json）。新增遥控器只要丢一个文件进去：
-//   match      VID/PID/名字提示（桥用它决定旁听哪些 HID 设备）
-//   hidPairs   "--hid-device vid:pid" 的原样参数
-//   pages      这台设备会上报的 HID usage page
-//   keys       page/usage → KeyboardEvent.code（只写这台特有的键；标准键在 _base.json）
-//   hidKeys    允许进入事件流的 code 白名单
-//   defaultKeyMap  该型号的默认动作（用户 settings 里的 keyMap 永远压过它）
-// 用户也可以把自己的型号放在 <hermes home>/baton/devices/ 下，同名 id 覆盖内置。
+// One model = one JSON (sidecar/devices/*.json). Adding a remote just means dropping in a file:
+//   match      VID/PID/name hints (the bridge uses them to decide which HID devices to listen to)
+//   hidPairs   raw "--hid-device vid:pid" arguments
+//   pages      HID usage pages this device reports
+//   keys       page/usage → KeyboardEvent.code (only this model's own keys; standard keys live in _base.json)
+//   hidKeys    whitelist of codes allowed into the event stream
+//   defaultKeyMap  this model's default actions (a user keyMap in settings always wins)
+// Users can also put their own models under <hermes home>/baton/devices/; same id overrides the built-in.
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const BUILTIN_DEVICES_DIR = dirname(fileURLToPath(import.meta.url))
 
-/** 一个动作：内置动词（submit / new-session / stop / swallow / phrase …）或带参数的对象。 */
+/** An action: a built-in verb (submit / new-session / stop / swallow / phrase …) or an object carrying arguments. */
 export type KeyAction = string | { action: string; name?: string; text?: string }
 
-/** 同一个键上的三种手势。缺省表示该手势不绑定。 */
+/** The three gestures on one key. Absent means that gesture is unbound. */
 export interface KeyBinding {
   single?: KeyAction
   double?: KeyAction
   long?: KeyAction
 }
 
-/** KeyboardEvent.code → 手势表。settings 里的 keyMap 与型号的 defaultKeyMap 同形。 */
+/** KeyboardEvent.code → gesture table. keyMap in settings and a model's defaultKeyMap share this shape. */
 export type KeyMap = Record<string, KeyBinding>
 
 export interface DeviceMatch {
@@ -37,12 +37,12 @@ export interface DeviceProfile {
   id: string
   label: string
   vendor: string
-  /** 这份型号 JSON 的绝对路径（故障排查用，不出现在 UI 主路径上）。 */
+  /** Absolute path of this model JSON (for troubleshooting; never on the UI's main path). */
   file: string
   match: DeviceMatch
   hidPairs: string[]
   pages: number[]
-  /** `page/usage` → KeyboardEvent.code（只含该型号特有的键）。 */
+  /** `page/usage` → KeyboardEvent.code (only this model's own keys). */
   keys: Record<string, string>
   hidKeys: string[]
   defaultKeyMap: KeyMap
@@ -53,11 +53,11 @@ export interface DeviceProfile {
 export interface DeviceRegistry {
   base: { id: '_base'; keys: Record<string, string> }
   profiles: DeviceProfile[]
-  /** 合并后的 `page/usage` → code 查表（_base 在前，型号逐层覆盖）。 */
+  /** Merged `page/usage` → code table (_base first, each model layered on top). */
   table: Map<string, string>
 }
 
-/** /state 与页面用的型号摘要；`keys` 是按键映射要渲染的行来源。 */
+/** Model summary for /state and the page; `keys` is the row source the key map is rendered from. */
 export interface DeviceSummary {
   id: string
   label: string
@@ -72,7 +72,7 @@ export interface DeviceSummary {
   notes: string
 }
 
-/** 型号 JSON 的原始形态：一律 unknown 收窄，坏文件只跳过不抛。 */
+/** Raw shape of a model JSON: everything is narrowed from unknown; a bad file is skipped, never thrown. */
 interface RawProfile {
   id?: unknown
   label?: unknown
@@ -166,8 +166,8 @@ export interface LoadOptions {
 }
 
 /**
- * 读内置型号 + 用户型号。同名 id 后者覆盖前者；`_base.json` 只贡献公共键表。
- * 返回 { base, profiles, table }，table 是 `page/usage` → code 的合并查表。
+ * Read built-in models + user models. A later id overrides an earlier one; `_base.json` only contributes the shared key table.
+ * Returns { base, profiles, table }, where table is the merged `page/usage` → code lookup.
  */
 export function loadDeviceProfiles({
   builtinDir = BUILTIN_DEVICES_DIR,
@@ -204,7 +204,7 @@ export function loadDeviceProfiles({
   return { base: { id: '_base', keys: baseKeys }, profiles: [...profiles.values()], table }
 }
 
-/** HID usage 查表：型号注册表优先。 */
+/** HID usage lookup: model registry first. */
 export function codeFor(registry: DeviceRegistry, page: number, usage: number): string | null {
   return registry.table.get(slot(page, usage)) || null
 }
@@ -213,7 +213,7 @@ export function profileById(registry: DeviceRegistry, id: string): DeviceProfile
   return registry.profiles.find((profile) => profile.id === id) || null
 }
 
-/** 桥上报的设备名 → 型号（名字可能是昵称，逐个 hint 双向包含匹配）。 */
+/** Device name reported by the bridge → model (the name may be a nickname; each hint is matched as a substring in both directions). */
 export function profileForDeviceName(registry: DeviceRegistry, name: string | null | undefined): DeviceProfile | null {
   const wanted = String(name || '').trim()
   if (!wanted) return null
@@ -227,7 +227,7 @@ export function profileForDeviceName(registry: DeviceRegistry, name: string | nu
   return null
 }
 
-/** 该型号的键名表（去重，稳定顺序：默认键在前）。 */
+/** Key-name list for a model (deduplicated, stable order: default keys first). */
 export function keysOfProfile(profile: DeviceProfile | null | undefined): string[] {
   if (!profile) return []
   const out: string[] = []
@@ -236,7 +236,7 @@ export function keysOfProfile(profile: DeviceProfile | null | undefined): string
   return out
 }
 
-/** 桥参数里的设备白名单，去重保序。 */
+/** Device whitelist for the bridge arguments: deduplicated, order preserved. */
 export function hidPairsOf(registry: DeviceRegistry): string[] {
   const out: string[] = []
   for (const profile of registry.profiles) {
@@ -245,7 +245,7 @@ export function hidPairsOf(registry: DeviceRegistry): string[] {
   return out
 }
 
-/** 所有型号会上报的 page（桥据此决定放行哪些页）。 */
+/** Pages every model reports (the bridge uses them to decide which pages to let through). */
 export function pagesOf(registry: DeviceRegistry): number[] {
   const out: number[] = []
   for (const profile of registry.profiles) {
@@ -255,8 +255,8 @@ export function pagesOf(registry: DeviceRegistry): number[] {
 }
 
 /**
- * 给 /state 与页面的型号摘要。`current` 是当前生效型号的 id。
- * keys 是该型号的按键表，页面「按键映射」按它渲染 —— 换遥控器这张表就该变。
+ * Model summary for /state and the page. `current` is the id of the active model.
+ * keys is that model's key table, which the page's "key map" renders — switching remote should change this table.
  */
 export function describeRegistry(
   registry: DeviceRegistry,

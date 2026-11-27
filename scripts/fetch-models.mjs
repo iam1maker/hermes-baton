@@ -95,7 +95,7 @@ function parseArgs(argv) {
     const value = () => {
       i += 1;
       const next = argv[i];
-      if (next === void 0) throw new Error(`${arg} \u9700\u8981\u4E00\u4E2A\u503C`);
+      if (next === void 0) throw new Error(`${arg} needs a value`);
       return next;
     };
     if (arg === "--help" || arg === "-h") opts.help = true;
@@ -107,12 +107,12 @@ function parseArgs(argv) {
     else if (arg === "--url") {
       const spec = value();
       const at = spec.indexOf("=");
-      if (at < 1) throw new Error("--url \u9700\u8981 <\u6587\u4EF6\u540D>=<url>");
+      if (at < 1) throw new Error("--url needs <name>=<url>");
       opts.urls[basename(spec.slice(0, at))] = spec.slice(at + 1);
-    } else if (arg.startsWith("-")) throw new Error(`\u672A\u77E5\u9009\u9879\uFF1A${arg}`);
-    else throw new Error(`\u591A\u4F59\u53C2\u6570\uFF1A${arg}`);
+    } else if (arg.startsWith("-")) throw new Error(`unknown option: ${arg}`);
+    else throw new Error(`unexpected argument: ${arg}`);
   }
-  if (!opts.dir) throw new Error("--dir \u4E0D\u80FD\u4E3A\u7A7A");
+  if (!opts.dir) throw new Error("--dir must not be empty");
   return opts;
 }
 function proxyFor(hostname) {
@@ -134,7 +134,7 @@ function rawGet(url, headers) {
   if (!proxy) {
     return new Promise((resolvePromise, reject) => {
       const req = httpsGet(url, { headers }, (response) => resolvePromise(response));
-      req.setTimeout(12e4, () => req.destroy(new Error(`\u8FDE\u63A5\u8D85\u65F6 120s\uFF1A${url}`)));
+      req.setTimeout(12e4, () => req.destroy(new Error(`connect timeout after 120s: ${url}`)));
       req.on("error", reject);
     });
   }
@@ -151,7 +151,7 @@ function rawGet(url, headers) {
     connectReq.on("connect", (probe, socket, _head) => {
       if (probe.statusCode !== 200) {
         socket.destroy();
-        return reject(new Error(`\u4EE3\u7406\u62D2\u7EDD CONNECT ${authority}\uFF1AHTTP ${probe.statusCode}`));
+        return reject(new Error(`proxy refused CONNECT ${authority}: HTTP ${probe.statusCode}`));
       }
       const tlsSocket = tlsConnect({ socket, servername: target.hostname, ALPNProtocols: ["http/1.1"] });
       const inner = httpsRequest({
@@ -163,12 +163,12 @@ function rawGet(url, headers) {
         servername: target.hostname,
         createConnection: () => tlsSocket
       });
-      inner.setTimeout(12e4, () => inner.destroy(new Error(`\u8FDE\u63A5\u8D85\u65F6 120s\uFF1A${url}`)));
+      inner.setTimeout(12e4, () => inner.destroy(new Error(`connect timeout after 120s: ${url}`)));
       inner.on("response", resolvePromise);
       inner.on("error", reject);
       inner.end();
     });
-    connectReq.on("timeout", () => connectReq.destroy(new Error(`\u4EE3\u7406\u8FDE\u63A5\u8D85\u65F6\uFF1A${proxy.host}`)));
+    connectReq.on("timeout", () => connectReq.destroy(new Error(`proxy connect timeout: ${proxy.host}`)));
     connectReq.on("error", reject);
     connectReq.end();
   });
@@ -179,7 +179,7 @@ async function request(url, headers, redirects = 0) {
   const location = response.headers.location;
   if (statusCode >= 300 && statusCode < 400 && typeof location === "string") {
     response.resume();
-    if (redirects >= 8) throw new Error(`\u91CD\u5B9A\u5411\u8FC7\u591A\uFF1A${url}`);
+    if (redirects >= 8) throw new Error(`too many redirects: ${url}`);
     return request(new URL(location, url).toString(), headers, redirects + 1);
   }
   return { response, statusCode, headers: response.headers };
@@ -217,12 +217,12 @@ async function downloadOne(url, dest, { size, sha256, label, force }) {
     response.resume();
   } else if (statusCode !== 200 && statusCode !== 206) {
     response.resume();
-    throw new Error(`HTTP ${statusCode}\uFF1A${url}`);
+    throw new Error(`HTTP ${statusCode}: ${url}`);
   }
   const total = Number(reply["content-length"] || 0) + (statusCode === 206 ? have : 0);
   const startAt = statusCode === 206 ? have : 0;
   if (total && size && total !== size) {
-    console.warn(`  ! \u670D\u52A1\u5668\u62A5\u544A ${human(total)}\uFF0C\u9884\u671F ${human(size)}\uFF08\u7EE7\u7EED\u4E0B\u8F7D\uFF0C\u6700\u540E\u6309 sha256 \u5224\u5B9A\uFF09`);
+    console.warn(`  ! server reports ${human(total)}, expected ${human(size)} (continuing; sha256 decides)`);
   }
   if (statusCode !== 416 && response.readable) {
     await new Promise((resolvePromise, reject) => {
@@ -246,18 +246,18 @@ async function downloadOne(url, dest, { size, sha256, label, force }) {
       response.on("error", reject);
     });
   } else if (!existsSync(part)) {
-    throw new Error(`\u65AD\u70B9\u6587\u4EF6\u4E0D\u89C1\u4E86\uFF1A${part}`);
+    throw new Error(`resume file disappeared: ${part}`);
   }
   const got_ = statSync(part).size;
   if (size && got_ !== size) {
-    throw new Error(`${label}: \u5927\u5C0F\u4E0D\u5BF9\uFF08${got_} \u5B57\u8282\uFF0C\u9884\u671F ${size}\uFF09\u3002\u65AD\u70B9\u7EED\u4F20\u53EF\u80FD\u63A5\u9519\u4E86\u6587\u4EF6\uFF1B--force \u91CD\u4E0B\u4E00\u6B21\u3002`);
+    throw new Error(`${label}: wrong size (${got_} bytes, expected ${size}). The resume may have glued onto a different file; re-run with --force.`);
   }
   const digest = await sha256File(part);
   if (sha256 && digest !== sha256 && !force) {
-    throw new Error(`${label}: sha256 \u4E0D\u5339\u914D
-  \u5F97\u5230 ${digest}
-  \u9884\u671F ${sha256}
-  \u82E5\u4E0A\u6E38\u786E\u5B9E\u66F4\u65B0\u4E86\u6587\u4EF6\uFF0C\u7528 --force \u63A5\u53D7\u65B0\u6587\u4EF6\uFF0C\u5E76\u66F4\u65B0\u672C\u811A\u672C\u91CC\u7684\u671F\u671B\u503C\u3002`);
+    throw new Error(`${label}: sha256 mismatch
+  got      ${digest}
+  expected ${sha256}
+  If upstream really republished the file, accept it with --force and update the expected value in this script.`);
   }
   renameSync(part, dest);
   return digest;
@@ -272,19 +272,19 @@ function findLocalVad(fromDir, explicit) {
   return candidates.find((file) => existsSync(file)) || null;
 }
 async function importFrom(fromDir, opts) {
-  if (!existsSync(fromDir)) throw new Error(`--from \u76EE\u5F55\u4E0D\u5B58\u5728\uFF1A${fromDir}`);
+  if (!existsSync(fromDir)) throw new Error(`--from directory does not exist: ${fromDir}`);
   const names = readdirSync(fromDir);
   const asr = names.find((name) => name === "model.int8.onnx") || names.find((name) => name.endsWith(".int8.onnx")) || names.find((name) => name === "model.onnx");
-  if (!asr) throw new Error(`${fromDir} \u91CC\u6CA1\u6709 model.int8.onnx / model.onnx`);
-  if (!names.includes("tokens.txt")) throw new Error(`${fromDir} \u91CC\u6CA1\u6709 tokens.txt`);
+  if (!asr) throw new Error(`${fromDir} has no model.int8.onnx / model.onnx`);
+  if (!names.includes("tokens.txt")) throw new Error(`${fromDir} has no tokens.txt`);
   const vad = findLocalVad(fromDir, opts.fromVad);
-  if (!vad) throw new Error(`\u6CA1\u627E\u5230 silero_vad.onnx\uFF1B\u7528 --from-vad <file> \u6307\u5B9A`);
+  if (!vad) throw new Error(`silero_vad.onnx not found; point at it with --from-vad <file>`);
   const targets = [
     [join(fromDir, asr), join(opts.dir, "sensevoice-onnx", asr === "model.int8.onnx" ? "model.int8.onnx" : asr)],
     [join(fromDir, "tokens.txt"), join(opts.dir, "sensevoice-onnx", "tokens.txt")],
     [vad, join(opts.dir, "silero-vad", "silero_vad.onnx")]
   ];
-  console.log(`\u5BFC\u5165\uFF08\u4E0D\u8054\u7F51\uFF09\uFF1A${fromDir}`);
+  console.log(`importing (offline): ${fromDir}`);
   for (const [src, dest] of targets) {
     mkdirSync(dirname(dest), { recursive: true });
     const bytes = statSync(src).size;
@@ -308,10 +308,10 @@ ${HELP}`);
     process.stdout.write(HELP);
     return 0;
   }
-  console.log(`\u76EE\u6807\u76EE\u5F55\uFF1A${opts.dir}`);
+  console.log(`target directory: ${opts.dir}`);
   if (opts.from) {
     await importFrom(opts.from, opts);
-    console.log("\n\u5B8C\u6210\u3002\u628A modelDir / vadModel \u6307\u5230\u4E0A\u9762\u4E24\u4E2A\u76EE\u5F55\u5373\u53EF\uFF08\u89C1 --help \u672B\u5C3E\uFF09\u3002");
+    console.log("\ndone. Point modelDir / vadModel at the two directories above (see the end of --help).");
     return 0;
   }
   const wanted = opts.fp32 ? [...FILES, FP32] : FILES;
@@ -324,12 +324,12 @@ ${HELP}`);
     if (!opts.force && present === file.size) {
       const digest = await sha256File(dest);
       if (!file.sha256 || digest === file.sha256) {
-        console.log(`\u2713 ${label} \u5DF2\u5C31\u7EEA\uFF08${human(present)}\uFF0Csha256=${digest}\uFF09`);
+        console.log(`\u2713 ${label} ready (${human(present)}, sha256=${digest})`);
         continue;
       }
-      console.log(`\u2026 ${label} \u5927\u5C0F\u5BF9\u4F46 sha256 \u4E0D\u540C\uFF0C\u91CD\u65B0\u4E0B\u8F7D`);
+      console.log(`\u2026 ${label} size matches but sha256 differs, re-downloading`);
     } else if (!opts.force && present >= 0) {
-      console.log(`\u2026 ${label} \u73B0\u6709 ${human(present)}\uFF0C\u9884\u671F ${human(file.size)}\uFF0C\u91CD\u65B0\u4E0B\u8F7D`);
+      console.log(`\u2026 ${label} has ${human(present)}, expected ${human(file.size)}, re-downloading`);
     }
     console.log(`\u2193 ${label}  \u2190 ${url}`);
     try {
@@ -338,14 +338,14 @@ ${HELP}`);
     } catch (error) {
       failed += 1;
       console.error(`\u2717 ${label}: ${messageOf(error)}`);
-      console.error(`  \u53EF\u6362\u6E90\uFF1A--url ${label}=<url>\uFF0C\u6216\u7528 --from <\u672C\u5730\u6A21\u578B\u76EE\u5F55> \u79BB\u7EBF\u5BFC\u5165\u3002`);
+      console.error(`  Try another mirror with --url ${label}=<url>, or import offline with --from <local model dir>.`);
     }
   }
   console.log(
     failed === 0 ? `
-\u5B8C\u6210\u3002\u6A21\u578B\u5728 ${opts.dir}
-\u628A modelDir / vadModel \u6307\u8FC7\u53BB\uFF08\u89C1 --help \u672B\u5C3E\uFF09\uFF0C\u6216\u6539\u7528\u5916\u90E8 STT \u670D\u52A1\u3002` : `
-${failed} \u4E2A\u6587\u4EF6\u5931\u8D25\u3002\u89C1\u4E0A\u9762\u7684\u9519\u8BEF\u4E0E\u66FF\u4EE3\u65B9\u6848\u3002`
+done. Models are in ${opts.dir}
+Point modelDir / vadModel there (see the end of --help), or switch to an external STT service.` : `
+${failed} file(s) failed. See the errors and alternatives above.`
   );
   return failed === 0 ? 0 : 1;
 }

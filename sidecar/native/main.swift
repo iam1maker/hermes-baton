@@ -65,8 +65,9 @@ func stateName(_ state: CBManagerState) -> String {
 
 // MARK: - Options
 
-/// 用法只有一行：参数错误时打到 stderr 并 exit 2，不静默忽略。
-/// 桥的 stdout 是 JSON 事件流，错参数不能混进去，否则调用方只看到「桥没反应」。
+/// Usage is a single line: bad arguments go to stderr and exit 2, never silently ignored.
+/// The bridge's stdout is a JSON event stream, so bad arguments must not be mixed in —
+/// otherwise the caller only sees "the bridge is not responding".
 let usageLine = "usage: atvv-link [--device <uuid>] [--name <text>] [--hid] [--list [seconds]] [--hid-device <vid:pid>]... [--hid-pages <hex,hex,...>]"
 
 func failUsage(_ message: String) -> Never {
@@ -75,8 +76,8 @@ func failUsage(_ message: String) -> Never {
     exit(2)
 }
 
-/// VID/PID 这类编号：先按十六进制认，失败再按十进制认，两种写法都吃。
-/// 十六进制可带 0x/0X 前缀——Swift 的 UInt32(_:radix:) 自己不剥前缀，得先去掉。
+/// VID/PID style numbers: try hex first, then decimal, so both notations work.
+/// Hex may carry a 0x/0X prefix — Swift's UInt32(_:radix:) does not strip it, so remove it first.
 func parseFlexibleNumber(_ raw: String) -> UInt32? {
     let text = raw.trimmingCharacters(in: .whitespaces)
     guard !text.isEmpty else { return nil }
@@ -89,8 +90,8 @@ func parseFlexibleNumber(_ raw: String) -> UInt32? {
     return UInt32(text, radix: 10)
 }
 
-/// usage page 只按十六进制解析（7 / 0x0c / ff00 这种）。页号本来就是十六进制惯例，
-/// 再猜十进制会让 `10` 这种写法含义漂移，宁可报错。
+/// Usage pages are hex-only (7 / 0x0c / ff00). Page numbers are conventionally hex;
+/// guessing decimal would make `10` mean something different, so fail instead.
 func parseUsagePage(_ raw: String) -> UInt32? {
     var text = raw.trimmingCharacters(in: .whitespaces)
     if text.lowercased().hasPrefix("0x") { text = String(text.dropFirst(2)) }
@@ -100,17 +101,19 @@ func parseUsagePage(_ raw: String) -> UInt32? {
 
 struct Options {
     var deviceID: UUID?
-    /// 空字符串 = 不按名字过滤。调用方已经用 ATVV 服务 UUID 圈定过设备时，
-    /// 任何暴露 AB5E0001 的遥控器都是语音遥控器，不必按型号硬编码。
+    /// Empty string = no name filter. When the caller already narrowed the search by the
+    /// ATVV service UUID, any remote exposing AB5E0001 is a voice remote, so no per-model
+    /// hardcoding is needed.
     var nameNeedle: String = ""
     var watchHID = false
-    /// > 0 时进入列表模式：列出候选遥控器后退出，不建立长连接。
+    /// > 0 enters list mode: print candidate remotes, then exit without connecting.
     var listSeconds: Double = 0
-    /// 额外要监听键位的 HID 设备（VID, PID），用于新遥控器型号。
+    /// Extra HID devices (VID, PID) whose keys to watch, for new remote models.
     var hidDevices: [(UInt32, UInt32)] = []
-    /// 放行的 HID usage page 集合。默认与原硬编码行为一致：0x07 键盘集合、
-    /// 0x0C Consumer Control、0xFF00 厂商位域。型号注册表会把各型号声明的
-    /// pages 并集通过 --hid-pages 传进来，于是新增遥控器型号不必重编桥。
+    /// HID usage pages to pass through. The default matches the old hardcoded behaviour:
+    /// 0x07 keyboard, 0x0C Consumer Control, 0xFF00 vendor-defined. The device registry
+    /// passes the union of each model's pages via --hid-pages, so a new remote model does
+    /// not need a rebuilt bridge.
     var hidPages: Set<UInt32> = [0x07, 0x0c, 0xff00]
 }
 
@@ -118,7 +121,7 @@ func parseOptions() -> Options {
     var options = Options()
     var args = Array(CommandLine.arguments.dropFirst())
 
-    /// 取一个选项值；缺失就报错，别把下一个选项当值吃掉。
+    /// Take one option value; fail when it is missing — never swallow the next flag as a value.
     func takeValue(_ name: String) -> String {
         guard !args.isEmpty else { failUsage("\(name) needs a value") }
         let value = args.removeFirst()
@@ -203,12 +206,12 @@ final class Link: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
 
     private func matches(_ name: String?) -> Bool {
         let needle = options.nameNeedle
-        // 空 needle = 接受任何 ATVV 设备：discover() 的接入点已经用服务 UUID
-        // 圈过范围，再按型号挑名字只会把新遥控器挡在外面。
+        // Empty needle = accept any ATVV device: discover() already narrowed the search
+        // by service UUID, and picking a name would only lock new remotes out.
         guard !needle.isEmpty else { return true }
         guard let name else { return false }
         if name.localizedCaseInsensitiveContains(needle) { return true }
-        // 历史名字兜底：小米遥控器在不同固件里叫过这两种。
+        // Legacy-name fallback: Xiaomi remotes have shipped under either of these names.
         let lower = name.lowercased()
         return lower == "mi rc" || lower.hasPrefix("xiaomi bluetooth remote 2")
     }
@@ -217,9 +220,10 @@ final class Link: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
         matches(peripheral.name)
     }
 
-    /// 扫描兜底时是否应当立刻连上去。
-    /// 空 needle 时只认广播里真带 ATVV 服务的设备——否则会连上旁边任意一台 BLE
-    /// 外设；指定了名字时按名字放行，因为不少 ATVV 遥控器不广播服务 UUID。
+    /// Whether a discovered device should be connected immediately.
+    /// With an empty needle only devices that actually advertise the ATVV service
+    /// qualify — otherwise any nearby BLE peripheral would be grabbed; with a name,
+    /// match on the name, because many ATVV remotes do not advertise the service UUID.
     private func shouldConnectOnSight(advertisedName: String,
                                       peripheral: CBPeripheral,
                                       advertisementData: [String: Any]) -> Bool {
@@ -239,11 +243,12 @@ final class Link: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
         }
 
         let connected = central.retrieveConnectedPeripherals(withServices: [atvvService])
-        // 指定了设备（UUID 或名字）时，**绝不**回退到「候选里的第一台」：那会把一次
-        // 切换静默变成「连回上一台」。实测症状：settings 已改成小米、桥也重启了，
-        // /state 却依旧是 Chromecast——因为 187 行的缓存查询永远轮不到。
-        // UUID 优先于名字：已连接的 CBPeripheral.name 可能是 nil（固件不回名字），
-        // 而名字匹配对 nil 一律 false。
+        // With an explicit device (UUID or name), NEVER fall back to "the first candidate":
+        // that silently turns a switch into "reconnect to the previous one". Observed
+        // symptom: settings pointed at the Xiaomi remote and the bridge had restarted, yet
+        // /state still reported Chromecast, because the cached lookup below never got a turn.
+        // UUID wins over name: a connected CBPeripheral.name can be nil (firmware omits it)
+        // and name matching is always false for nil.
         let byID = options.deviceID.flatMap { wanted in
             connected.first { $0.identifier == wanted }
         }
@@ -329,8 +334,11 @@ final class Link: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
         let advertisedName = (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? peripheral.name ?? ""
         if options.listSeconds > 0 {
             let services = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID]) ?? []
+            // The CJK literal below is a device-name fragment ("remote") as real firmware
+            // spells it, not prose — matched verbatim.
             let looksLikeRemote = advertisedName.localizedCaseInsensitiveContains("remote")
-                || advertisedName.contains("遥控")
+                // U+9065 U+63A7 = "remote" in the device name some remotes advertise
+                || advertisedName.contains("\u{9065}\u{63A7}")
                 || services.contains(atvvService)
             if looksLikeRemote { reportCandidate(peripheral, name: advertisedName, connected: false) }
             return
@@ -537,11 +545,12 @@ final class HIDKeyReader {
         guard !started else { return }
         started = true
         let mgr = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        // 每台已知遥控器一条精确的 VID/PID 匹配：遥控器的按键集合和普通键盘重叠，
-        // 只有把范围钉死在遥控器上才不会吞掉内置键盘或蓝牙键盘的按键。
-        // 新遥控器型号只需在这里加一行，或用 --hid-device vid:pid 传入。
+        // One exact VID/PID matcher per known remote: a remote's key set overlaps a normal
+        // keyboard's, so only pinning the scope to the remote avoids swallowing keys from
+        // the built-in or a Bluetooth keyboard. A new remote model needs one line here, or
+        // --hid-device vid:pid.
         var matchers: [[String: Any]] = [
-            [kIOHIDVendorIDKey: 0x2717, kIOHIDProductIDKey: 0x32b8],  // 小米蓝牙语音遥控器 2 / 2 Pro
+            [kIOHIDVendorIDKey: 0x2717, kIOHIDProductIDKey: 0x32b8],  // Xiaomi Bluetooth Voice Remote 2 / 2 Pro
             [kIOHIDVendorIDKey: 0x18d1, kIOHIDProductIDKey: 0x9450],  // Chromecast with Google TV Remote
         ]
         for (vid, pid) in extraDevices {
@@ -569,11 +578,12 @@ final class HIDKeyReader {
         let element = IOHIDValueGetElement(value)
         let page = IOHIDElementGetUsagePage(element)
         let usage = IOHIDElementGetUsage(element)
-        // 放行哪些页由 --hid-pages 决定，默认仍是这三页：
-        // 0x07 键盘集合（小米把 Back/音量塞在这里）、0x0C Consumer Control
-        // （Chromecast 遥控器的主集合就是 Consumer，漏掉这一页等于一个键都收不到）、
-        // 0xFF00 厂商位域（usage 恒为 0xFFFFFFFF，解码在 TypeScript 侧）。
-        // 新型号只要在自己的 JSON 里声明 pages，注册表把并集传进来，不必重编桥。
+        // Which pages pass through is decided by --hid-pages; the default is still these
+        // three: 0x07 keyboard (Xiaomi puts Back/volume there), 0x0C Consumer Control (the
+        // Chromecast remote's primary collection is Consumer — dropping this page means
+        // receiving no keys at all), 0xFF00 vendor-defined (usage is always 0xFFFFFFFF;
+        // decoding happens on the TypeScript side). A new model only declares its pages in
+        // its JSON and the registry passes the union in, with no bridge rebuild.
         guard pages.contains(page) else { return }
         let intValue = IOHIDValueGetIntegerValue(value)
         var payload: [String: Any] = [

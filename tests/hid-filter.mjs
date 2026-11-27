@@ -30,63 +30,66 @@ const make = ({ targetDeviceName, keyFilter } = {}) => {
   service.on("key", (event) => keys.push(event));
   return { transport, keys, logs, service };
 };
+const ACTIVE = "Xiaomi Voice Remote";
+const OTHER = "Chromecast Remote";
 const BACK = { page: 7, usage: 241, value: 1 };
 const hidkey = (transport, device, base = BACK) => transport.fire("hidkey", { ...base, device });
 {
-  const { transport, keys } = make({ targetDeviceName: () => "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668" });
-  hidkey(transport, "Chromecast Remote");
-  check("\u9ED8\u8BA4\uFF1A\u975E\u5F53\u524D\u8BBE\u5907\u88AB\u5FFD\u7565", keys.length === 0, keys);
-  hidkey(transport, "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668");
-  check("\u9ED8\u8BA4\uFF1A\u5F53\u524D\u8BBE\u5907\u901A\u8FC7", keys.length === 1, keys);
+  const { transport, keys } = make({ targetDeviceName: () => ACTIVE });
+  hidkey(transport, OTHER);
+  check("default: key from another device is ignored", keys.length === 0, keys);
+  hidkey(transport, ACTIVE);
+  check("default: key from the current device passes", keys.length === 1, keys);
 }
 {
-  const { transport, keys } = make({ targetDeviceName: () => "Chromecast Remote", keyFilter: () => "any" });
-  hidkey(transport, "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668");
-  check("keyFilter=any \u4E0D\u8FC7\u6EE4", keys.length === 1, keys);
+  const { transport, keys } = make({ targetDeviceName: () => OTHER, keyFilter: () => "any" });
+  hidkey(transport, ACTIVE);
+  check("keyFilter=any does not filter", keys.length === 1, keys);
 }
 {
   const { transport, keys, logs } = make({
-    targetDeviceName: () => "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668",
+    targetDeviceName: () => ACTIVE,
     keyFilter: () => "active"
   });
-  hidkey(transport, "Chromecast Remote");
-  check("active\uFF1A\u975E\u5F53\u524D\u8BBE\u5907\u6309\u952E\u88AB\u5FFD\u7565", keys.length === 0, keys);
-  check("active\uFF1A\u5FFD\u7565\u53EA\u8BB0\u4E00\u6761\u65E5\u5FD7", logs.filter((l) => l.includes("\u5FFD\u7565\u975E\u5F53\u524D\u8BBE\u5907")).length === 1, logs);
-  hidkey(transport, "Chromecast Remote");
-  check("active\uFF1A\u91CD\u590D\u6309\u4E0D\u5237\u65E5\u5FD7", logs.filter((l) => l.includes("\u5FFD\u7565\u975E\u5F53\u524D\u8BBE\u5907")).length === 1, logs);
-  hidkey(transport, "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668");
-  check("active\uFF1A\u5F53\u524D\u8BBE\u5907\u6309\u952E\u901A\u8FC7", keys.length === 1 && keys[0].code === "Back", keys);
+  const ignoredLogs = () => logs.filter((l) => l.includes("[hid]") && l.includes(OTHER));
+  hidkey(transport, OTHER);
+  check("active: key from another device is ignored", keys.length === 0, keys);
+  check("active: ignoring is logged exactly once", ignoredLogs().length === 1, logs);
+  hidkey(transport, OTHER);
+  check("active: repeated press does not re-log", ignoredLogs().length === 1, logs);
+  hidkey(transport, ACTIVE);
+  check("active: key from the current device passes", keys.length === 1 && keys[0].code === "Back", keys);
 }
 {
   const { transport, keys } = make({
-    targetDeviceName: () => "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668",
+    targetDeviceName: () => ACTIVE,
     keyFilter: () => "active"
   });
-  transport.fire("device", { id: "uuid-cast", name: "Chromecast Remote" });
-  hidkey(transport, "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668");
-  check("active\uFF1A\u5207\u6362\u540E\u65E7\u8BBE\u5907\u6309\u952E\u88AB\u5FFD\u7565", keys.length === 0, keys);
-  hidkey(transport, "Chromecast Remote");
-  check("active\uFF1A\u5207\u6362\u540E\u65B0\u8BBE\u5907\u6309\u952E\u901A\u8FC7", keys.length === 1, keys);
+  transport.fire("device", { id: "uuid-cast", name: OTHER });
+  hidkey(transport, ACTIVE);
+  check("active: after a switch the old device is ignored", keys.length === 0, keys);
+  hidkey(transport, OTHER);
+  check("active: after a switch the new device passes", keys.length === 1, keys);
 }
 {
   const { transport, keys } = make({ targetDeviceName: () => "", keyFilter: () => "active" });
-  hidkey(transport, "Chromecast Remote");
-  hidkey(transport, "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668");
-  check("active\uFF1A\u65E0\u76EE\u6807\u65F6 fail-open", keys.length === 2, keys);
+  hidkey(transport, OTHER);
+  hidkey(transport, ACTIVE);
+  check("active: fail-open when no target is known", keys.length === 2, keys);
 }
 {
-  const { transport, keys } = make({ targetDeviceName: () => "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668", keyFilter: () => "active" });
+  const { transport, keys } = make({ targetDeviceName: () => ACTIVE, keyFilter: () => "active" });
   transport.fire("hidkey", { ...BACK });
-  check("active\uFF1A\u7F3A device \u5B57\u6BB5\u65F6\u4E0D\u8BEF\u6740", keys.length === 1, keys);
+  check("active: missing device field is not killed off", keys.length === 1, keys);
 }
 {
   let mode = "active";
-  const { transport, keys } = make({ targetDeviceName: () => "Chromecast Remote", keyFilter: () => mode });
-  hidkey(transport, "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668");
+  const { transport, keys } = make({ targetDeviceName: () => OTHER, keyFilter: () => mode });
+  hidkey(transport, ACTIVE);
   const blocked = keys.length === 0;
   mode = "any";
-  hidkey(transport, "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668");
-  check("\u70ED\u6539 keyFilter \u7ACB\u5373\u751F\u6548", blocked && keys.length === 1, keys);
+  hidkey(transport, ACTIVE);
+  check("hot-editing keyFilter takes effect immediately", blocked && keys.length === 1, keys);
 }
 console.log(fails === 0 ? "HID FILTER SUMMARY pass" : `HID FILTER SUMMARY ${fails} fail`);
 process.exit(fails === 0 ? 0 : 1);

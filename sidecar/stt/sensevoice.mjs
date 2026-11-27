@@ -33,8 +33,8 @@ function loadSherpa() {
     }
   }
   const error = new Error(
-    `\u627E\u4E0D\u5230 sherpa-onnx \u539F\u751F\u6A21\u5757\uFF08\u5C1D\u8BD5\u8FC7 ${tried.length} \u5904\uFF09\u3002
-` + tried.map((line) => `  \xB7 ${line}`).join("\n") + "\n\u4FEE\u6CD5\uFF1A\u628A DSH \u8BED\u97F3\u8F93\u5165 bundle \u88C5\u56DE\u6765\uFF0C\u6216 npm i sherpa-onnx-node\uFF08sherpa-onnx-darwin-arm64\uFF09\uFF0C\u518D\u7528 REMOTE_MIC_SHERPA \u6307\u8FC7\u53BB\u3002"
+    `sherpa-onnx native module not found (tried ${tried.length} places).
+` + tried.map((line) => `  \xB7 ${line}`).join("\n") + "\nfix: reinstall the DSH voice-input bundle, or npm i sherpa-onnx-node (sherpa-onnx-darwin-arm64), then point REMOTE_MIC_SHERPA at it."
   );
   error.code = "SHERPA_MISSING";
   throw error;
@@ -58,14 +58,14 @@ function resolveModelPaths({
   let model = null;
   if (explicit) {
     if (existsSync(explicit)) model = explicit;
-    else notes.push(`\u6307\u5B9A\u7684\u6A21\u578B\u6587\u4EF6\u4E0D\u5B58\u5728\uFF1A${explicit}`);
+    else notes.push(`configured model file does not exist: ${explicit}`);
   }
   if (!model) {
     if (want === "fp32") {
       model = fp32 || null;
       if (!model && int8) {
         model = int8;
-        notes.push("\u8981\u7684\u662F fp32\uFF0C\u4F46\u76EE\u5F55\u91CC\u53EA\u6709 int8\uFF0C\u5DF2\u56DE\u9000 int8");
+        notes.push("fp32 was requested but the directory only has int8; fell back to int8");
       }
     } else {
       model = int8 || fp32 || null;
@@ -73,9 +73,9 @@ function resolveModelPaths({
   }
   const tokens = join(dir, "tokens.txt");
   const problems = [];
-  if (!model) problems.push(`\u6A21\u578B\u76EE\u5F55\u91CC\u6CA1\u6709 .onnx\uFF1A${dir}`);
-  if (!existsSync(tokens)) problems.push(`\u7F3A\u5C11 tokens.txt\uFF1A${tokens}`);
-  if (!existsSync(vad)) problems.push(`\u7F3A\u5C11 Silero VAD\uFF1A${vad}`);
+  if (!model) problems.push(`no .onnx in the model directory: ${dir}`);
+  if (!existsSync(tokens)) problems.push(`missing tokens.txt: ${tokens}`);
+  if (!existsSync(vad)) problems.push(`missing Silero VAD: ${vad}`);
   return {
     ok: problems.length === 0,
     model: model ?? null,
@@ -90,7 +90,7 @@ function resolveModelPaths({
 }
 function decodeWav(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (view.getUint32(0, false) !== 1380533830) throw new Error("\u4E0D\u662F WAV \u6587\u4EF6\uFF08\u7F3A\u5C11 RIFF \u5934\uFF09");
+  if (view.getUint32(0, false) !== 1380533830) throw new Error("not a WAV file (missing RIFF header)");
   let offset = 12;
   let sampleRate = 16e3;
   let format = 1;
@@ -106,7 +106,7 @@ function decodeWav(bytes) {
     } else if (id === "data") {
       const end = Math.min(bytes.byteLength, body + size);
       if (format !== 1 || bits !== 16) {
-        throw new Error(`\u53EA\u652F\u6301 16-bit PCM WAV\uFF08\u62FF\u5230 format=${format} bits=${bits}\uFF09`);
+        throw new Error(`only 16-bit PCM WAV is supported (got format=${format} bits=${bits})`);
       }
       return {
         sampleRate,
@@ -115,7 +115,7 @@ function decodeWav(bytes) {
     }
     offset = body + size + size % 2;
   }
-  throw new Error("WAV \u91CC\u6CA1\u6709 data \u5757");
+  throw new Error("no data chunk in WAV");
 }
 function createSenseVoiceTranscriber({
   modelDir,
@@ -140,7 +140,7 @@ function createSenseVoiceTranscriber({
     if (engine) return engine;
     if (!paths.ok) {
       const error = new Error(
-        `\u672C\u5730 SenseVoice \u4E0D\u53EF\u7528\uFF1A
+        `local SenseVoice unavailable:
 ${paths.problems.map((line) => `  \xB7 ${line}`).join("\n")}`
       );
       error.code = "MODEL_MISSING";
@@ -150,7 +150,7 @@ ${paths.problems.map((line) => `  \xB7 ${line}`).join("\n")}`
     const sherpa = loadSherpa();
     const { model, tokens, vad } = paths;
     if (!model || !tokens || !vad) {
-      throw new Error(`\u672C\u5730 SenseVoice \u4E0D\u53EF\u7528\uFF1A\u6A21\u578B\u8DEF\u5F84\u89E3\u6790\u4E0D\u5B8C\u6574`);
+      throw new Error(`local SenseVoice unavailable: model paths resolved incompletely`);
     }
     const nativeConfig = {
       featConfig: { sampleRate: 16e3, featureDim: 80 },
@@ -181,18 +181,18 @@ ${paths.problems.map((line) => `  \xB7 ${line}`).join("\n")}`
       segmentSeconds + minSilenceSeconds + 1
     );
     lastLoadMs = Date.now() - startedAt;
-    log(`[stt] SenseVoice \u5DF2\u52A0\u8F7D ${paths.model} (${lastLoadMs} ms)`);
+    log(`[stt] SenseVoice loaded ${paths.model} (${lastLoadMs} ms)`);
     engine = { sherpa, recognizer, detector, nativeConfig, sampleRate: 16e3 };
     return engine;
   };
   const transcribe = (wavBytes, { language = "zh" } = {}) => {
     if (wavBytes.byteLength > maxAudioBytes) {
-      throw new Error(`\u97F3\u9891\u8FC7\u5927\uFF1A${wavBytes.byteLength} \u5B57\u8282`);
+      throw new Error(`audio too large: ${wavBytes.byteLength} bytes`);
     }
     const { recognizer, detector, nativeConfig } = load();
     const startedAt = Date.now();
     const { sampleRate, samples } = decodeWav(wavBytes);
-    if (sampleRate !== 16e3) throw new Error(`\u8BC6\u522B\u5668\u53EA\u63A5\u53D7 16 kHz\uFF0C\u62FF\u5230 ${sampleRate} Hz`);
+    if (sampleRate !== 16e3) throw new Error(`recogniser accepts 16 kHz only, got ${sampleRate} Hz`);
     const audio = Float32Array.from(samples, (value) => value / 32768);
     nativeConfig.modelConfig.senseVoice.language = language || "auto";
     recognizer.setConfig(nativeConfig);

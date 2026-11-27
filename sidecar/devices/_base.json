@@ -1,7 +1,7 @@
 {
   "id": "_base",
-  "label": "HID 标准键（所有遥控器共享）",
-  "comment": "page/usage → KeyboardEvent.code 的公共表。型号 profile 里只写它特有的键，这里放 HID Usage Tables 的标准含义。新增遥控器不需要改这里。",
+  "label": "HID standard keys (shared by all remotes)",
+  "comment": "Shared page/usage → KeyboardEvent.code table. A model profile only lists the keys specific to that model; this file holds the standard HID Usage Tables meanings. Adding a remote does not require touching it.",
   "keys": {
     "0x07/0x28": "Enter",
     "0x07/0x29": "Escape",

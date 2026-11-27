@@ -1,6 +1,6 @@
-// 设备型号注册表测试：纯 Node，不碰硬件、不碰网络，只验证 loadDeviceProfiles 一族。
-// 覆盖：_base + 型号合并、codeFor 查表（型号键与 base 键）、hidPairsOf 去重、
-// profileForDeviceName 两个真机名、describeRegistry 的 current 标记、用户目录覆盖同名 id。
+// Device model registry tests: pure Node, no hardware, no network — only the loadDeviceProfiles family.
+// Coverage: _base + model merge, codeFor lookups (model keys and base keys), hidPairsOf dedup,
+// profileForDeviceName on the two real device names, describeRegistry's current flag, user dir overriding an id.
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -27,61 +27,61 @@ const check = (name: string, ok: boolean, detail: string | number | undefined = 
   }
 }
 
-// 内置注册表（不带用户目录）
+// Built-in registry (no user directory)
 const registry = loadDeviceProfiles({})
 
-// 1) _base 与型号 JSON 合并：两个型号都在，_base 只进查表不进 profiles
-check('内置型号有两个', registry.profiles.length === 2, registry.profiles.map(p => p.id).join(','))
-check('_base 不算型号', registry.base.id === '_base' && Object.keys(registry.base.keys).length > 0, Object.keys(registry.base.keys).length)
+// 1) _base merges with the model JSONs: both models present, _base only enters the table, not profiles
+check('built-in registry has two models', registry.profiles.length === 2, registry.profiles.map(p => p.id).join(','))
+check('_base is not counted as a model', registry.base.id === '_base' && Object.keys(registry.base.keys).length > 0, Object.keys(registry.base.keys).length)
 check(
-  '查表合并 _base + 型号',
+  'table merges _base + models',
   registry.table.get('7/40') === 'Enter' && registry.table.get('12/65') === 'Enter' && registry.table.get('7/241') === 'Back',
   [...registry.table.entries()].length
 )
 
-// 2) codeFor：型号键 0x0c/0x41→Enter（Chromecast）、0x07/0xf1→Back（小米）、0x07/0x28→Enter（来自 base）
+// 2) codeFor: model key 0x0c/0x41→Enter (Chromecast), 0x07/0xf1→Back (Xiaomi), 0x07/0x28→Enter (from base)
 check('codeFor 0x0c/0x41 → Enter', codeFor(registry, 0x0c, 0x41) === 'Enter', String(codeFor(registry, 0x0c, 0x41)))
 check('codeFor 0x07/0xf1 → Back', codeFor(registry, 0x07, 0xf1) === 'Back', String(codeFor(registry, 0x07, 0xf1)))
-check('codeFor 0x07/0x28 → Enter（base）', codeFor(registry, 0x07, 0x28) === 'Enter', String(codeFor(registry, 0x07, 0x28)))
-check('codeFor 未登记 usage → null', codeFor(registry, 0x07, 0x99) === null, String(codeFor(registry, 0x07, 0x99)))
+check('codeFor 0x07/0x28 → Enter (base)', codeFor(registry, 0x07, 0x28) === 'Enter', String(codeFor(registry, 0x07, 0x28)))
+check('codeFor unmapped usage → null', codeFor(registry, 0x07, 0x99) === null, String(codeFor(registry, 0x07, 0x99)))
 
-// 3) hidPairsOf 去重保序：内置是两个不同 pair
+// 3) hidPairsOf dedups and preserves order: the built-ins are two distinct pairs
 {
   const pairs = hidPairsOf(registry)
-  check('hidPairsOf 内置两个 pair', pairs.length === 2 && pairs.includes('0x18d1:0x9450') && pairs.includes('0x2717:0x32b8'), pairs.join(' '))
-  check('pagesOf 并集', pagesOf(registry).length === 3, pagesOf(registry).join(','))
+  check('hidPairsOf returns the two built-in pairs', pairs.length === 2 && pairs.includes('0x18d1:0x9450') && pairs.includes('0x2717:0x32b8'), pairs.join(' '))
+  check('pagesOf returns the union', pagesOf(registry).length === 3, pagesOf(registry).join(','))
 }
 
-// 4) profileForDeviceName：两个真机名都能命中，别的名字 → null
+// 4) profileForDeviceName: both real device names match, anything else → null
 check(
-  '真机名「小米蓝牙语音遥控器」命中 xiaomi',
-  profileForDeviceName(registry, '小米蓝牙语音遥控器')?.id === 'xiaomi-bt-remote-2',
-  profileForDeviceName(registry, '小米蓝牙语音遥控器')?.id
+  'real device name (Xiaomi voice remote) maps to xiaomi',
+  profileForDeviceName(registry, '\u5c0f\u7c73\u84dd\u7259\u8bed\u97f3\u9065\u63a7\u5668')?.id === 'xiaomi-bt-remote-2',
+  profileForDeviceName(registry, '\u5c0f\u7c73\u84dd\u7259\u8bed\u97f3\u9065\u63a7\u5668')?.id
 )
 check(
-  '真机名「Chromecast Remote」命中 chromecast',
+  'real device name "Chromecast Remote" maps to chromecast',
   profileForDeviceName(registry, 'Chromecast Remote')?.id === 'chromecast-google-tv',
   profileForDeviceName(registry, 'Chromecast Remote')?.id
 )
-check('未登记型号 → null（不猜）', profileForDeviceName(registry, 'Some Keyboard') === null, String(profileForDeviceName(registry, 'Some Keyboard')))
+check('unregistered model → null (no guessing)', profileForDeviceName(registry, 'Some Keyboard') === null, String(profileForDeviceName(registry, 'Some Keyboard')))
 
-// 5) describeRegistry 的 current 标记
+// 5) describeRegistry's current flag
 {
   const rows = describeRegistry(registry, 'chromecast-google-tv')
   const cast = rows.find(row => row.id === 'chromecast-google-tv')
   const mi = rows.find(row => row.id === 'xiaomi-bt-remote-2')
-  check('describeRegistry current 标记', rows.length === 2 && cast?.current === true && mi?.current === false, rows.map(r => `${r.id}:${r.current}`).join(','))
-  check('describeRegistry 带按键表', cast !== undefined && Array.isArray(cast.keys) && cast.keys.includes('Enter') && Array.isArray(cast.hidKeys) && Boolean(cast.defaultKeyMap.Enter), cast?.keys?.join(','))
+  check('describeRegistry marks current', rows.length === 2 && cast?.current === true && mi?.current === false, rows.map(r => `${r.id}:${r.current}`).join(','))
+  check('describeRegistry carries the key table', cast !== undefined && Array.isArray(cast.keys) && cast.keys.includes('Enter') && Array.isArray(cast.hidKeys) && Boolean(cast.defaultKeyMap.Enter), cast?.keys?.join(','))
 }
 
-// 6) 用户目录：同名 id 覆盖内置 + 自带的键压过 base/内置键 + 重复 pair 去重
+// 6) user directory: same id overrides the built-in + own keys beat base/built-in keys + duplicate pairs dedup
 const userDir = mkdtempSync(join(tmpdir(), 'rm-devices-'))
 mkdirSync(userDir, { recursive: true })
 writeFileSync(
   join(userDir, 'xiaomi-bt-remote-2.json'),
   JSON.stringify({
     id: 'xiaomi-bt-remote-2',
-    label: '我的小米（改过）',
+    label: 'My Xiaomi (edited)',
     hidPairs: ['0x2717:0x32b8'],
     keys: { '0x07/0xf1': 'Escape' },
     hidKeys: ['Back'],
@@ -92,7 +92,7 @@ writeFileSync(
   join(userDir, 'extra-remote.json'),
   JSON.stringify({
     id: 'extra-remote',
-    label: '杂牌遥控器',
+    label: 'Third-party remote',
     hidPairs: ['0x18d1:0x9450', '0x1234:0x5678'],
     keys: { '0x07/0x28': 'Enter' },
     hidKeys: ['Enter']
@@ -100,12 +100,12 @@ writeFileSync(
 )
 {
   const merged = loadDeviceProfiles({ userDir })
-  check('用户目录覆盖同名 id', profileById(merged, 'xiaomi-bt-remote-2')?.label === '我的小米（改过）', profileById(merged, 'xiaomi-bt-remote-2')?.label)
-  check('用户型号键压过内置键', codeFor(merged, 0x07, 0xf1) === 'Escape', String(codeFor(merged, 0x07, 0xf1)))
-  check('用户型号并入 profiles', merged.profiles.length === 3 && profileById(merged, 'extra-remote') !== null, merged.profiles.map(p => p.id).join(','))
+  check('user dir overrides a built-in id', profileById(merged, 'xiaomi-bt-remote-2')?.label === 'My Xiaomi (edited)', profileById(merged, 'xiaomi-bt-remote-2')?.label)
+  check('user model keys override built-in keys', codeFor(merged, 0x07, 0xf1) === 'Escape', String(codeFor(merged, 0x07, 0xf1)))
+  check('user models join profiles', merged.profiles.length === 3 && profileById(merged, 'extra-remote') !== null, merged.profiles.map(p => p.id).join(','))
   const pairs = hidPairsOf(merged)
-  check('hidPairsOf 去重', pairs.length === 3 && pairs.filter(p => p === '0x18d1:0x9450').length === 1, pairs.join(' '))
-  check('keysOfProfile 去重保序', JSON.stringify(keysOfProfile(profileById(merged, 'xiaomi-bt-remote-2'))) === JSON.stringify(['Escape', 'Back']), JSON.stringify(keysOfProfile(profileById(merged, 'xiaomi-bt-remote-2'))))
+  check('hidPairsOf dedups', pairs.length === 3 && pairs.filter(p => p === '0x18d1:0x9450').length === 1, pairs.join(' '))
+  check('keysOfProfile dedups, order preserved', JSON.stringify(keysOfProfile(profileById(merged, 'xiaomi-bt-remote-2'))) === JSON.stringify(['Escape', 'Back']), JSON.stringify(keysOfProfile(profileById(merged, 'xiaomi-bt-remote-2'))))
 }
 rmSync(userDir, { recursive: true, force: true })
 

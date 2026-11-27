@@ -35,7 +35,7 @@ def main() -> int:
                 body = event.get("payload") or {}
                 stamp = time.strftime("%H:%M:%S", time.localtime(event["at"] / 1000))
                 if kind == "transcript":
-                    print(f"{stamp} transcript 「{body.get('text')}」 {body.get('audioSeconds', 0):.2f}s", flush=True)
+                    print(f"{stamp} transcript \"{body.get('text')}\" {body.get('audioSeconds', 0):.2f}s", flush=True)
                 elif kind == "key":
                     print(f"{stamp} key {body.get('code')} down={body.get('down')} source={body.get('source')}", flush=True)
                 else:

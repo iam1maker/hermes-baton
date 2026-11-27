@@ -13,7 +13,11 @@ STATE = os.path.expanduser("~/.hermes/baton")
 TOKEN = open(os.path.join(STATE, "token")).read().strip()
 BASE = "http://127.0.0.1:8791"
 
-XIAOMI = ("98A4D12B-6ECD-8BCE-38A5-CC479494E15E", "小米蓝牙语音遥控器")
+# Device names exactly as the remotes report them over BLE: they are patched into
+# config and end up as the bridge's --name filter, so they stay verbatim.
+# The paired device name macOS reports (U+5C0F U+7C73 U+84DD U+7259 U+8BED U+97F3 U+9065 U+63A7 U+5668);
+# kept as escapes so the repository source stays ASCII while matching stays exact.
+XIAOMI = ("98A4D12B-6ECD-8BCE-38A5-CC479494E15E", "\u5c0f\u7c73\u84dd\u7259\u8bed\u97f3\u9065\u63a7\u5668")
 CAST = ("1EC33B1A-A855-9E87-D576-ADD938299D28", "Chromecast Remote")
 
 
@@ -46,28 +50,28 @@ def wait_ready(target_id: str, budget: float = 30.0) -> tuple[float, dict]:
 def switch(label: str, device: tuple[str, str]) -> float:
     print(f"\n=== {label}: {device[1]} ===")
     before = call("GET", "/state")
-    print(f"切换前 pid={before['pid']} device={(before.get('device') or {}).get('name')} state={before['state']}")
+    print(f"before switch pid={before['pid']} device={(before.get('device') or {}).get('name')} state={before['state']}")
     started = time.time()
     call("POST", "/config", {"patch": {"deviceId": device[0], "deviceName": device[1]}})
     elapsed, after = wait_ready(device[0])
-    print(f"耗时 {elapsed:.2f}s → pid={after.get('pid')} device={(after.get('device') or {}).get('name')}"
+    print(f"took {elapsed:.2f}s → pid={after.get('pid')} device={(after.get('device') or {}).get('name')}"
           f" state={after.get('state')} battery={after.get('battery')}")
-    print(f"pid 变化: {before['pid']} → {after.get('pid')}（桥重启，守护进程不变）")
+    print(f"pid change: {before['pid']} → {after.get('pid')} (bridge restarted, daemon unchanged)")
     return elapsed
 
 
 def main() -> int:
     start = call("GET", "/state")
     current = (start.get("device") or {}).get("id")
-    print(f"起始设备: {(start.get('device') or {}).get('name')}  daemon pid={start['pid']}")
+    print(f"starting device: {(start.get('device') or {}).get('name')}  daemon pid={start['pid']}")
 
     other = XIAOMI if current == CAST[0] else CAST
-    a = switch("切换 1", other)
-    b = switch("切回", CAST if other is XIAOMI else XIAOMI)
+    a = switch("switch 1", other)
+    b = switch("switch back", CAST if other is XIAOMI else XIAOMI)
 
     final = call("GET", "/state")
-    print(f"\n最终: device={(final.get('device') or {}).get('name')} pid={final['pid']} state={final['state']}")
-    print(f"两次切换耗时 {a:.2f}s / {b:.2f}s，守护进程 pid 始终是 {start['pid']}")
+    print(f"\nfinal: device={(final.get('device') or {}).get('name')} pid={final['pid']} state={final['state']}")
+    print(f"two switches took {a:.2f}s / {b:.2f}s; the daemon pid stayed {start['pid']}")
     return 0
 
 

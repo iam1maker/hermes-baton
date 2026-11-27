@@ -24,39 +24,39 @@ const check = (name, ok, detail = "") => {
   }
 };
 const registry = loadDeviceProfiles({});
-check("\u5185\u7F6E\u578B\u53F7\u6709\u4E24\u4E2A", registry.profiles.length === 2, registry.profiles.map((p) => p.id).join(","));
-check("_base \u4E0D\u7B97\u578B\u53F7", registry.base.id === "_base" && Object.keys(registry.base.keys).length > 0, Object.keys(registry.base.keys).length);
+check("built-in registry has two models", registry.profiles.length === 2, registry.profiles.map((p) => p.id).join(","));
+check("_base is not counted as a model", registry.base.id === "_base" && Object.keys(registry.base.keys).length > 0, Object.keys(registry.base.keys).length);
 check(
-  "\u67E5\u8868\u5408\u5E76 _base + \u578B\u53F7",
+  "table merges _base + models",
   registry.table.get("7/40") === "Enter" && registry.table.get("12/65") === "Enter" && registry.table.get("7/241") === "Back",
   [...registry.table.entries()].length
 );
 check("codeFor 0x0c/0x41 \u2192 Enter", codeFor(registry, 12, 65) === "Enter", String(codeFor(registry, 12, 65)));
 check("codeFor 0x07/0xf1 \u2192 Back", codeFor(registry, 7, 241) === "Back", String(codeFor(registry, 7, 241)));
-check("codeFor 0x07/0x28 \u2192 Enter\uFF08base\uFF09", codeFor(registry, 7, 40) === "Enter", String(codeFor(registry, 7, 40)));
-check("codeFor \u672A\u767B\u8BB0 usage \u2192 null", codeFor(registry, 7, 153) === null, String(codeFor(registry, 7, 153)));
+check("codeFor 0x07/0x28 \u2192 Enter (base)", codeFor(registry, 7, 40) === "Enter", String(codeFor(registry, 7, 40)));
+check("codeFor unmapped usage \u2192 null", codeFor(registry, 7, 153) === null, String(codeFor(registry, 7, 153)));
 {
   const pairs = hidPairsOf(registry);
-  check("hidPairsOf \u5185\u7F6E\u4E24\u4E2A pair", pairs.length === 2 && pairs.includes("0x18d1:0x9450") && pairs.includes("0x2717:0x32b8"), pairs.join(" "));
-  check("pagesOf \u5E76\u96C6", pagesOf(registry).length === 3, pagesOf(registry).join(","));
+  check("hidPairsOf returns the two built-in pairs", pairs.length === 2 && pairs.includes("0x18d1:0x9450") && pairs.includes("0x2717:0x32b8"), pairs.join(" "));
+  check("pagesOf returns the union", pagesOf(registry).length === 3, pagesOf(registry).join(","));
 }
 check(
-  "\u771F\u673A\u540D\u300C\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668\u300D\u547D\u4E2D xiaomi",
+  "real device name (Xiaomi voice remote) maps to xiaomi",
   profileForDeviceName(registry, "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668")?.id === "xiaomi-bt-remote-2",
   profileForDeviceName(registry, "\u5C0F\u7C73\u84DD\u7259\u8BED\u97F3\u9065\u63A7\u5668")?.id
 );
 check(
-  "\u771F\u673A\u540D\u300CChromecast Remote\u300D\u547D\u4E2D chromecast",
+  'real device name "Chromecast Remote" maps to chromecast',
   profileForDeviceName(registry, "Chromecast Remote")?.id === "chromecast-google-tv",
   profileForDeviceName(registry, "Chromecast Remote")?.id
 );
-check("\u672A\u767B\u8BB0\u578B\u53F7 \u2192 null\uFF08\u4E0D\u731C\uFF09", profileForDeviceName(registry, "Some Keyboard") === null, String(profileForDeviceName(registry, "Some Keyboard")));
+check("unregistered model \u2192 null (no guessing)", profileForDeviceName(registry, "Some Keyboard") === null, String(profileForDeviceName(registry, "Some Keyboard")));
 {
   const rows = describeRegistry(registry, "chromecast-google-tv");
   const cast = rows.find((row) => row.id === "chromecast-google-tv");
   const mi = rows.find((row) => row.id === "xiaomi-bt-remote-2");
-  check("describeRegistry current \u6807\u8BB0", rows.length === 2 && cast?.current === true && mi?.current === false, rows.map((r) => `${r.id}:${r.current}`).join(","));
-  check("describeRegistry \u5E26\u6309\u952E\u8868", cast !== void 0 && Array.isArray(cast.keys) && cast.keys.includes("Enter") && Array.isArray(cast.hidKeys) && Boolean(cast.defaultKeyMap.Enter), cast?.keys?.join(","));
+  check("describeRegistry marks current", rows.length === 2 && cast?.current === true && mi?.current === false, rows.map((r) => `${r.id}:${r.current}`).join(","));
+  check("describeRegistry carries the key table", cast !== void 0 && Array.isArray(cast.keys) && cast.keys.includes("Enter") && Array.isArray(cast.hidKeys) && Boolean(cast.defaultKeyMap.Enter), cast?.keys?.join(","));
 }
 const userDir = mkdtempSync(join(tmpdir(), "rm-devices-"));
 mkdirSync(userDir, { recursive: true });
@@ -64,7 +64,7 @@ writeFileSync(
   join(userDir, "xiaomi-bt-remote-2.json"),
   JSON.stringify({
     id: "xiaomi-bt-remote-2",
-    label: "\u6211\u7684\u5C0F\u7C73\uFF08\u6539\u8FC7\uFF09",
+    label: "My Xiaomi (edited)",
     hidPairs: ["0x2717:0x32b8"],
     keys: { "0x07/0xf1": "Escape" },
     hidKeys: ["Back"],
@@ -75,7 +75,7 @@ writeFileSync(
   join(userDir, "extra-remote.json"),
   JSON.stringify({
     id: "extra-remote",
-    label: "\u6742\u724C\u9065\u63A7\u5668",
+    label: "Third-party remote",
     hidPairs: ["0x18d1:0x9450", "0x1234:0x5678"],
     keys: { "0x07/0x28": "Enter" },
     hidKeys: ["Enter"]
@@ -83,12 +83,12 @@ writeFileSync(
 );
 {
   const merged = loadDeviceProfiles({ userDir });
-  check("\u7528\u6237\u76EE\u5F55\u8986\u76D6\u540C\u540D id", profileById(merged, "xiaomi-bt-remote-2")?.label === "\u6211\u7684\u5C0F\u7C73\uFF08\u6539\u8FC7\uFF09", profileById(merged, "xiaomi-bt-remote-2")?.label);
-  check("\u7528\u6237\u578B\u53F7\u952E\u538B\u8FC7\u5185\u7F6E\u952E", codeFor(merged, 7, 241) === "Escape", String(codeFor(merged, 7, 241)));
-  check("\u7528\u6237\u578B\u53F7\u5E76\u5165 profiles", merged.profiles.length === 3 && profileById(merged, "extra-remote") !== null, merged.profiles.map((p) => p.id).join(","));
+  check("user dir overrides a built-in id", profileById(merged, "xiaomi-bt-remote-2")?.label === "My Xiaomi (edited)", profileById(merged, "xiaomi-bt-remote-2")?.label);
+  check("user model keys override built-in keys", codeFor(merged, 7, 241) === "Escape", String(codeFor(merged, 7, 241)));
+  check("user models join profiles", merged.profiles.length === 3 && profileById(merged, "extra-remote") !== null, merged.profiles.map((p) => p.id).join(","));
   const pairs = hidPairsOf(merged);
-  check("hidPairsOf \u53BB\u91CD", pairs.length === 3 && pairs.filter((p) => p === "0x18d1:0x9450").length === 1, pairs.join(" "));
-  check("keysOfProfile \u53BB\u91CD\u4FDD\u5E8F", JSON.stringify(keysOfProfile(profileById(merged, "xiaomi-bt-remote-2"))) === JSON.stringify(["Escape", "Back"]), JSON.stringify(keysOfProfile(profileById(merged, "xiaomi-bt-remote-2"))));
+  check("hidPairsOf dedups", pairs.length === 3 && pairs.filter((p) => p === "0x18d1:0x9450").length === 1, pairs.join(" "));
+  check("keysOfProfile dedups, order preserved", JSON.stringify(keysOfProfile(profileById(merged, "xiaomi-bt-remote-2"))) === JSON.stringify(["Escape", "Back"]), JSON.stringify(keysOfProfile(profileById(merged, "xiaomi-bt-remote-2"))));
 }
 rmSync(userDir, { recursive: true, force: true });
 console.log(`DEVICES SUMMARY ${pass} pass / ${fail} fail`);

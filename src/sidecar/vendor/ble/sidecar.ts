@@ -127,8 +127,8 @@ export class SidecarTransport extends TypedEmitter<SidecarEvents> {
     this.#send({ cmd: 'quit' });
     await new Promise<void>((resolve) => {
       const force = setTimeout(() => {
-        // Hermes 侧改动：旧的桥只是 SIGTERM 不一定会退（Swift 侧可能仍在等
-        // CoreBluetooth 回调），残留进程会和新的桥抢同一台遥控器的连接。
+        // Hermes-side change: a plain SIGTERM does not always make the old bridge exit (the Swift side
+        // may still be waiting on a CoreBluetooth callback), and a leftover process fights the new bridge for the same remote.
         child.kill('SIGTERM');
         const hard = setTimeout(() => {
           if (child.exitCode === null) child.kill('SIGKILL');

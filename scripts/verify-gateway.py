@@ -25,7 +25,7 @@ def main() -> int:
     if not attach.receipt.endpoint:
         print(f"gateway not reachable: {attach.receipt.state} {attach.receipt.reason_code}")
         return 2
-    # 端口每次重启都会变，必须从 attach 回执里取，不能写死。
+    # The port changes on every restart, so read it from the attach receipt, never hardcode it.
     base = attach.receipt.endpoint.api_origin
     print(f"origin   {base}")
 
@@ -64,7 +64,7 @@ def main() -> int:
     print(f"selftest {status} {raw[:200].decode('utf-8', 'replace')}")
     failures += status != 200
 
-    status, raw = call("/api/plugins/baton/mock/transcript", "POST", {"text": "验收探针"})
+    status, raw = call("/api/plugins/baton/mock/transcript", "POST", {"text": "acceptance probe"})
     print(f"mock     {status} {raw[:160].decode('utf-8', 'replace')}")
     failures += status != 200
 

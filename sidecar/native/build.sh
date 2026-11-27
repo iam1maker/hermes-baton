@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 构建 CoreBluetooth 桥（universal binary + ad-hoc 签名）。
-# 只依赖 Xcode Command Line Tools 里的 swiftc；产物直接覆盖 sidecar/bin/atvv-link。
+# Build the CoreBluetooth bridge (universal binary + ad-hoc signature).
+# Needs only swiftc from the Xcode Command Line Tools; overwrites sidecar/bin/atvv-link.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

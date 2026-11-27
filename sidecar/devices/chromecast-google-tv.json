@@ -1,6 +1,6 @@
 {
   "id": "chromecast-google-tv",
-  "label": "Chromecast with Google TV 遥控器",
+  "label": "Chromecast with Google TV Remote",
   "vendor": "Google",
   "match": {
     "vendorIds": [6353],
@@ -39,9 +39,9 @@
   ],
   "defaultKeyMap": {
     "Enter": { "single": "submit", "double": "new-session", "long": "swallow" },
-    "Back": { "single": "stop", "double": { "action": "phrase", "name": "收到" } },
+    "Back": { "single": "stop", "double": { "action": "phrase", "name": "\u6536\u5230" } },
     "InputSource": { "single": "new-session" }
   },
-  "voiceHint": "按住语音键（麦克风图标）说话，松手出字",
-  "notes": "主集合是 Consumer Control（page 0x0C）：0x41 是独立 OK 键（小米的中键是语音键）。Power / Netflix / YouTube 由 macOS 自己消费（锁屏、拉起播放器），插件只识别不动作。"
+  "voiceHint": "Hold the voice key (microphone icon) and speak; release to insert the text",
+  "notes": "The primary collection is Consumer Control (page 0x0C): 0x41 is a dedicated OK key (on the Xiaomi the centre key is the voice key). Power / Netflix / YouTube are consumed by macOS itself (lock screen, opening the player), so the plugin only recognises them and takes no action."
 }

@@ -95,9 +95,9 @@ def _request(method: str, path: str, body: Any = None, timeout: float = 6.0) -> 
             pass
         raise RuntimeError(f"{method} {path} → HTTP {error.code}: {detail}") from None
     except urllib.error.URLError as error:
-        raise RuntimeError(f"baton 守护进程不可达（{error.reason}）") from None
+        raise RuntimeError(f"baton daemon unreachable ({error.reason})") from None
     except TimeoutError:
-        raise RuntimeError(f"{method} {path} 超时（{timeout}s）") from None
+        raise RuntimeError(f"{method} {path} timed out ({timeout}s)") from None
 
 
 def _health() -> dict | None:
@@ -123,9 +123,9 @@ def _looks_like_ours(pid: int) -> bool:
 def _spawn() -> subprocess.Popen:
     node = _node_binary()
     if node is None:
-        raise RuntimeError("找不到 node（需要 Node.js ≥ 22；或设 BATON_NODE 指向它）")
+        raise RuntimeError("node not found (Node.js >= 22 required; or point BATON_NODE at it)")
     if not SERVER_JS.exists():
-        raise RuntimeError(f"守护进程脚本缺失：{SERVER_JS}")
+        raise RuntimeError(f"daemon script missing: {SERVER_JS}")
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     log_path = STATE_DIR / "daemon.out"
     env = os.environ.copy()
@@ -161,11 +161,11 @@ def ensure_running(timeout: float = 12.0) -> tuple[bool, str | None]:
             health = _health() or {}
             pid = int(health.get("pid") or 0)
             if not pid or not _looks_like_ours(pid):
-                return False, "端口被别的进程占着，且不是 baton 守护进程"
+                return False, "the port is held by another process that is not the baton daemon"
             try:
                 os.kill(pid, signal.SIGTERM)
             except OSError as kill_error:
-                return False, f"无法结束旧的守护进程 {pid}：{kill_error}"
+                return False, f"cannot stop the old daemon {pid}: {kill_error}"
             _SELF_HEALED = True
             deadline = time.time() + 5
             while time.time() < deadline and _health() is not None:
@@ -174,7 +174,7 @@ def ensure_running(timeout: float = 12.0) -> tuple[bool, str | None]:
     if _SPAWNED is not None and _SPAWNED.poll() is not None:
         code = _SPAWNED.returncode
         _SPAWNED = None
-        _LAST_ERROR = f"守护进程退出（code={code}），见 {STATE_DIR / 'daemon.out'}"
+        _LAST_ERROR = f"daemon exited (code={code}); see {STATE_DIR / 'daemon.out'}"
 
     if _SPAWNED is None:
         try:
@@ -195,12 +195,12 @@ def ensure_running(timeout: float = 12.0) -> tuple[bool, str | None]:
                 return False, _LAST_ERROR
         if _SPAWNED.poll() is not None:
             _LAST_ERROR = (
-                f"守护进程启动失败（code={_SPAWNED.returncode}），见 {STATE_DIR / 'daemon.out'}"
+                f"daemon failed to start (code={_SPAWNED.returncode}); see {STATE_DIR / 'daemon.out'}"
             )
             _SPAWNED = None
             return False, _LAST_ERROR
         time.sleep(0.15)
-    _LAST_ERROR = f"守护进程在 {timeout:.0f}s 内没有就绪，见 {STATE_DIR / 'daemon.out'}"
+    _LAST_ERROR = f"daemon not ready within {timeout:.0f}s; see {STATE_DIR / 'daemon.out'}"
     return False, _LAST_ERROR
 
 
@@ -208,7 +208,7 @@ def call(method: str, path: str, body: Any = None, timeout: float = 15.0) -> dic
     """ensure_running() then the request; the only entry point the API uses."""
     ok, error = ensure_running()
     if not ok:
-        raise RuntimeError(error or "baton 守护进程未运行")
+        raise RuntimeError(error or "baton daemon is not running")
     return _request(method, path, body, timeout=timeout)
 
 
@@ -242,10 +242,11 @@ def restart() -> dict:
 
 
 def reload_devices() -> dict:
-    """热重载设备型号注册表（内置 + 用户目录）。
+    """Hot-reload the device-model registry (built-in + user directory).
 
-    新增遥控器型号 = 丢一个 JSON 到 <state dir>/devices/ 再调这里，
-    不用重启守护进程；当前型号或桥参数变了守护进程自己重启链路。
+    Adding a remote model means dropping a JSON file into <state dir>/devices/ and
+    calling this — no daemon restart; if the current model or bridge arguments
+    changed, the daemon restarts the link itself.
     """
     return call("POST", "/devices/reload", {}, timeout=30)
 

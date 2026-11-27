@@ -1,4 +1,4 @@
-"""baton backend — HTTP face of the「指挥」daemon.
+"""baton backend — HTTP face of the baton daemon.
 
 The desktop half polls this prefix (`/api/plugins/baton/...`) instead of the
 daemon port directly: the renderer is same-origin with the gateway, so a plugin
@@ -44,7 +44,7 @@ def _runtime():
     path = Path(__file__).resolve().parent.parent / "runtime.py"
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"无法加载 {path}")
+        raise RuntimeError(f"cannot load {path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     spec.loader.exec_module(module)
@@ -119,7 +119,7 @@ def restart() -> dict[str, Any]:
 
 @router.post("/devices/reload")
 def reload_devices() -> dict[str, Any]:
-    """热重载设备型号注册表：新增遥控器型号 = 丢一个 JSON，不用重启守护进程。"""
+    """Hot-reload the device-model registry: a new remote model = one JSON file, no daemon restart."""
     try:
         return _runtime().reload_devices()
     except RuntimeError as error:
@@ -186,7 +186,7 @@ def mock_transcript(payload: dict[str, Any] = Body(default_factory=dict)) -> dic
     """Same shape as a real dictation, so the composer path can be tested without hardware."""
     text = str(payload.get("text") or "").strip()
     if not text:
-        raise HTTPException(status_code=400, detail="缺少 text")
+        raise HTTPException(status_code=400, detail="missing text")
     try:
         return _runtime().mock_transcript(text)
     except RuntimeError as error:
@@ -207,7 +207,7 @@ def open_settings(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[
     """Open a macOS privacy pane (the Bluetooth grant the BLE bridge needs)."""
     pane = str(payload.get("pane") or "bluetooth")
     if pane not in ("bluetooth", "microphone"):
-        raise HTTPException(status_code=400, detail=f"未知面板: {pane}")
+        raise HTTPException(status_code=400, detail=f"unknown pane: {pane}")
     try:
         return _runtime().open_settings(pane)
     except RuntimeError as error:
@@ -228,7 +228,7 @@ def last_audio() -> Response:
     runtime = _runtime()
     ok, error = runtime.ensure_running()
     if not ok:
-        raise HTTPException(status_code=503, detail=error or "守护进程未运行")
+        raise HTTPException(status_code=503, detail=error or "daemon is not running")
     url = f"{runtime.BASE}/audio/last"
     token = runtime._token()  # noqa: SLF001 — same package
     request = urllib.request.Request(url, headers={"authorization": f"Bearer {token}"} if token else {})
@@ -236,5 +236,5 @@ def last_audio() -> Response:
         with urllib.request.urlopen(request, timeout=6) as response:
             payload = response.read()
     except Exception as request_error:  # noqa: BLE001 — 404 means "nothing recorded yet"
-        raise HTTPException(status_code=404, detail=f"还没有录音：{request_error}") from None
+        raise HTTPException(status_code=404, detail=f"no recording yet: {request_error}") from None
     return Response(content=payload, media_type="audio/wav", headers={"cache-control": "no-store"})

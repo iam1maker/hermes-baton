@@ -140,7 +140,7 @@ function parseArgs(argv: string[]): Options {
     const value = (): string => {
       i += 1
       const next = argv[i]
-      if (next === undefined) throw new Error(`${arg} 需要一个值`)
+      if (next === undefined) throw new Error(`${arg} needs a value`)
       return next
     }
     if (arg === '--help' || arg === '-h') opts.help = true
@@ -152,12 +152,12 @@ function parseArgs(argv: string[]): Options {
     else if (arg === '--url') {
       const spec = value()
       const at = spec.indexOf('=')
-      if (at < 1) throw new Error('--url 需要 <文件名>=<url>')
+      if (at < 1) throw new Error('--url needs <name>=<url>')
       opts.urls[basename(spec.slice(0, at))] = spec.slice(at + 1)
-    } else if (arg.startsWith('-')) throw new Error(`未知选项：${arg}`)
-    else throw new Error(`多余参数：${arg}`)
+    } else if (arg.startsWith('-')) throw new Error(`unknown option: ${arg}`)
+    else throw new Error(`unexpected argument: ${arg}`)
   }
-  if (!opts.dir) throw new Error('--dir 不能为空')
+  if (!opts.dir) throw new Error('--dir must not be empty')
   return opts
 }
 
@@ -193,7 +193,7 @@ function rawGet(url: string, headers: Record<string, string>): Promise<IncomingM
   if (!proxy) {
     return new Promise<IncomingMessage>((resolvePromise, reject) => {
       const req = httpsGet(url, { headers }, response => resolvePromise(response))
-      req.setTimeout(120_000, () => req.destroy(new Error(`连接超时 120s：${url}`)))
+      req.setTimeout(120_000, () => req.destroy(new Error(`connect timeout after 120s: ${url}`)))
       req.on('error', reject)
     })
   }
@@ -211,7 +211,7 @@ function rawGet(url: string, headers: Record<string, string>): Promise<IncomingM
     connectReq.on('connect', (probe: IncomingMessage, socket: Duplex, _head: Buffer) => {
       if (probe.statusCode !== 200) {
         socket.destroy()
-        return reject(new Error(`代理拒绝 CONNECT ${authority}：HTTP ${probe.statusCode}`))
+        return reject(new Error(`proxy refused CONNECT ${authority}: HTTP ${probe.statusCode}`))
       }
       const tlsSocket = tlsConnect({ socket, servername: target.hostname, ALPNProtocols: ['http/1.1'] })
       const inner = httpsRequest({
@@ -223,12 +223,12 @@ function rawGet(url: string, headers: Record<string, string>): Promise<IncomingM
         servername: target.hostname,
         createConnection: () => tlsSocket
       })
-      inner.setTimeout(120_000, () => inner.destroy(new Error(`连接超时 120s：${url}`)))
+      inner.setTimeout(120_000, () => inner.destroy(new Error(`connect timeout after 120s: ${url}`)))
       inner.on('response', resolvePromise)
       inner.on('error', reject)
       inner.end()
     })
-    connectReq.on('timeout', () => connectReq.destroy(new Error(`代理连接超时：${proxy.host}`)))
+    connectReq.on('timeout', () => connectReq.destroy(new Error(`proxy connect timeout: ${proxy.host}`)))
     connectReq.on('error', reject)
     connectReq.end()
   })
@@ -246,7 +246,7 @@ async function request(url: string, headers: Record<string, string>, redirects =
   const location = response.headers.location
   if (statusCode >= 300 && statusCode < 400 && typeof location === 'string') {
     response.resume()
-    if (redirects >= 8) throw new Error(`重定向过多：${url}`)
+    if (redirects >= 8) throw new Error(`too many redirects: ${url}`)
     return request(new URL(location, url).toString(), headers, redirects + 1)
   }
   return { response, statusCode, headers: response.headers }
@@ -300,13 +300,13 @@ async function downloadOne(url: string, dest: string, { size, sha256, label, for
     response.resume()
   } else if (statusCode !== 200 && statusCode !== 206) {
     response.resume()
-    throw new Error(`HTTP ${statusCode}：${url}`)
+    throw new Error(`HTTP ${statusCode}: ${url}`)
   }
 
   const total = Number(reply['content-length'] || 0) + (statusCode === 206 ? have : 0)
   const startAt = statusCode === 206 ? have : 0
   if (total && size && total !== size) {
-    console.warn(`  ! 服务器报告 ${human(total)}，预期 ${human(size)}（继续下载，最后按 sha256 判定）`)
+    console.warn(`  ! server reports ${human(total)}, expected ${human(size)} (continuing; sha256 decides)`)
   }
 
   if (statusCode !== 416 && response.readable) {
@@ -331,16 +331,16 @@ async function downloadOne(url: string, dest: string, { size, sha256, label, for
     })
   } else if (!existsSync(part)) {
     // 416 means "your range starts past EOF"; without the .part there is nothing to verify.
-    throw new Error(`断点文件不见了：${part}`)
+    throw new Error(`resume file disappeared: ${part}`)
   }
 
   const got_ = statSync(part).size
   if (size && got_ !== size) {
-    throw new Error(`${label}: 大小不对（${got_} 字节，预期 ${size}）。断点续传可能接错了文件；--force 重下一次。`)
+    throw new Error(`${label}: wrong size (${got_} bytes, expected ${size}). The resume may have glued onto a different file; re-run with --force.`)
   }
   const digest = await sha256File(part)
   if (sha256 && digest !== sha256 && !force) {
-    throw new Error(`${label}: sha256 不匹配\n  得到 ${digest}\n  预期 ${sha256}\n  若上游确实更新了文件，用 --force 接受新文件，并更新本脚本里的期望值。`)
+    throw new Error(`${label}: sha256 mismatch\n  got      ${digest}\n  expected ${sha256}\n  If upstream really republished the file, accept it with --force and update the expected value in this script.`)
   }
   renameSync(part, dest)
   return digest
@@ -359,20 +359,20 @@ function findLocalVad(fromDir: string, explicit: string): string | null {
 }
 
 async function importFrom(fromDir: string, opts: Options): Promise<void> {
-  if (!existsSync(fromDir)) throw new Error(`--from 目录不存在：${fromDir}`)
+  if (!existsSync(fromDir)) throw new Error(`--from directory does not exist: ${fromDir}`)
   const names = readdirSync(fromDir)
   const asr = names.find(name => name === 'model.int8.onnx') || names.find(name => name.endsWith('.int8.onnx')) || names.find(name => name === 'model.onnx')
-  if (!asr) throw new Error(`${fromDir} 里没有 model.int8.onnx / model.onnx`)
-  if (!names.includes('tokens.txt')) throw new Error(`${fromDir} 里没有 tokens.txt`)
+  if (!asr) throw new Error(`${fromDir} has no model.int8.onnx / model.onnx`)
+  if (!names.includes('tokens.txt')) throw new Error(`${fromDir} has no tokens.txt`)
   const vad = findLocalVad(fromDir, opts.fromVad)
-  if (!vad) throw new Error(`没找到 silero_vad.onnx；用 --from-vad <file> 指定`)
+  if (!vad) throw new Error(`silero_vad.onnx not found; point at it with --from-vad <file>`)
 
   const targets: Array<[string, string]> = [
     [join(fromDir, asr), join(opts.dir, 'sensevoice-onnx', asr === 'model.int8.onnx' ? 'model.int8.onnx' : asr)],
     [join(fromDir, 'tokens.txt'), join(opts.dir, 'sensevoice-onnx', 'tokens.txt')],
     [vad, join(opts.dir, 'silero-vad', 'silero_vad.onnx')]
   ]
-  console.log(`导入（不联网）：${fromDir}`)
+  console.log(`importing (offline): ${fromDir}`)
   for (const [src, dest] of targets) {
     mkdirSync(dirname(dest), { recursive: true })
     const bytes = statSync(src).size
@@ -397,10 +397,10 @@ async function main(): Promise<number> {
     return 0
   }
 
-  console.log(`目标目录：${opts.dir}`)
+  console.log(`target directory: ${opts.dir}`)
   if (opts.from) {
     await importFrom(opts.from, opts)
-    console.log('\n完成。把 modelDir / vadModel 指到上面两个目录即可（见 --help 末尾）。')
+    console.log('\ndone. Point modelDir / vadModel at the two directories above (see the end of --help).')
     return 0
   }
 
@@ -414,12 +414,12 @@ async function main(): Promise<number> {
     if (!opts.force && present === file.size) {
       const digest = await sha256File(dest)
       if (!file.sha256 || digest === file.sha256) {
-        console.log(`✓ ${label} 已就绪（${human(present)}，sha256=${digest}）`)
+        console.log(`✓ ${label} ready (${human(present)}, sha256=${digest})`)
         continue
       }
-      console.log(`… ${label} 大小对但 sha256 不同，重新下载`)
+      console.log(`… ${label} size matches but sha256 differs, re-downloading`)
     } else if (!opts.force && present >= 0) {
-      console.log(`… ${label} 现有 ${human(present)}，预期 ${human(file.size)}，重新下载`)
+      console.log(`… ${label} has ${human(present)}, expected ${human(file.size)}, re-downloading`)
     }
     console.log(`↓ ${label}  ← ${url}`)
     try {
@@ -428,14 +428,14 @@ async function main(): Promise<number> {
     } catch (error) {
       failed += 1
       console.error(`✗ ${label}: ${messageOf(error)}`)
-      console.error(`  可换源：--url ${label}=<url>，或用 --from <本地模型目录> 离线导入。`)
+      console.error(`  Try another mirror with --url ${label}=<url>, or import offline with --from <local model dir>.`)
     }
   }
 
   console.log(
     failed === 0
-      ? `\n完成。模型在 ${opts.dir}\n把 modelDir / vadModel 指过去（见 --help 末尾），或改用外部 STT 服务。`
-      : `\n${failed} 个文件失败。见上面的错误与替代方案。`
+      ? `\ndone. Models are in ${opts.dir}\nPoint modelDir / vadModel there (see the end of --help), or switch to an external STT service.`
+      : `\n${failed} file(s) failed. See the errors and alternatives above.`
   )
   return failed === 0 ? 0 : 1
 }

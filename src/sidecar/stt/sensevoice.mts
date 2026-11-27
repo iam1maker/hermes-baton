@@ -32,7 +32,7 @@ export const DEFAULT_MODEL_DIR = join(
 )
 export const DEFAULT_VAD_MODEL = join(HOME, '.dsh/speech-to-text/sensevoice/models/silero/silero_vad.onnx')
 
-/* ── sherpa-onnx 原生模块：只声明用到的那一点面 ─────────────────────── */
+/* ── sherpa-onnx native module: only the surface we actually use ─────── */
 
 interface SherpaStream {
   acceptWaveform(input: { sampleRate: number; samples: Float32Array }): void
@@ -43,13 +43,13 @@ interface SherpaRecognizer {
   createStream(): SherpaStream
   decode(stream: SherpaStream): void
   getResult(stream: SherpaStream): { text: string }
-  /** 新版 binding 才有；老版本是 undefined。 */
+  /** Only newer bindings have this; older ones leave it undefined. */
   free?(): void
 }
 
 interface SpeechSegment {
   samples: Float32Array
-  /** 该段在输入音频里的起始采样点。 */
+  /** Start sample of this segment within the input audio. */
   start: number
 }
 
@@ -94,7 +94,7 @@ interface VadConfig {
   debug: number
 }
 
-/** Error 上挂的错误码：调用方按 code 分支（SHERPA_MISSING / MODEL_MISSING）。 */
+/** Error code attached to the error object: callers branch on code (SHERPA_MISSING / MODEL_MISSING). */
 type CodedError = Error & { code?: string }
 
 /** Where the native binding may live, most specific first. */
@@ -122,9 +122,9 @@ function loadSherpa(): SherpaModule {
     }
   }
   const error = new Error(
-    `找不到 sherpa-onnx 原生模块（尝试过 ${tried.length} 处）。\n` +
+    `sherpa-onnx native module not found (tried ${tried.length} places).\n` +
       tried.map(line => `  · ${line}`).join('\n') +
-      '\n修法：把 DSH 语音输入 bundle 装回来，或 npm i sherpa-onnx-node（sherpa-onnx-darwin-arm64），再用 REMOTE_MIC_SHERPA 指过去。'
+      '\nfix: reinstall the DSH voice-input bundle, or npm i sherpa-onnx-node (sherpa-onnx-darwin-arm64), then point REMOTE_MIC_SHERPA at it.'
   ) as CodedError
   error.code = 'SHERPA_MISSING'
   throw error
@@ -163,8 +163,8 @@ export function resolveModelPaths({
         .filter(name => name.endsWith('.onnx'))
         .map(name => join(dir, name))
     : []
-  // 精度选择：显式文件 > 显式精度 > 默认 int8（保持与历史行为一致）。
-  // fp32 找不到时静默回退 int8，但要留痕，否则「切了没生效」无从判断。
+  // Precision choice: explicit file > explicit precision > default int8 (unchanged historical behaviour).
+  // A missing fp32 falls back to int8 silently but leaves a note, otherwise "switched it and nothing changed" is undiagnosable.
   const notes: string[] = []
   const envModelFile = envAny('MODEL_FILE')
   const explicit = modelFile
@@ -177,7 +177,7 @@ export function resolveModelPaths({
         : join(dir, envModelFile)
       : ''
   const want = String(precision || envAny('MODEL_PRECISION') || 'int8').toLowerCase()
-  // 同目录里可能躺着 VAD（silero_vad.onnx）之类的其它 onnx，不能当成 ASR 权重。
+  // Other onnx files (silero_vad.onnx etc.) may sit in the same directory and must not be taken for ASR weights.
   const isAsr = (file: string): boolean => file.endsWith('.onnx') && !/vad|silero/i.test(file)
   const int8 = models.find(file => file.endsWith('.int8.onnx'))
   const fp32 =
@@ -186,14 +186,14 @@ export function resolveModelPaths({
   let model: string | null = null
   if (explicit) {
     if (existsSync(explicit)) model = explicit
-    else notes.push(`指定的模型文件不存在：${explicit}`)
+    else notes.push(`configured model file does not exist: ${explicit}`)
   }
   if (!model) {
     if (want === 'fp32') {
       model = fp32 || null
       if (!model && int8) {
         model = int8
-        notes.push('要的是 fp32，但目录里只有 int8，已回退 int8')
+        notes.push('fp32 was requested but the directory only has int8; fell back to int8')
       }
     } else {
       model = int8 || fp32 || null
@@ -201,9 +201,9 @@ export function resolveModelPaths({
   }
   const tokens = join(dir, 'tokens.txt')
   const problems: string[] = []
-  if (!model) problems.push(`模型目录里没有 .onnx：${dir}`)
-  if (!existsSync(tokens)) problems.push(`缺少 tokens.txt：${tokens}`)
-  if (!existsSync(vad)) problems.push(`缺少 Silero VAD：${vad}`)
+  if (!model) problems.push(`no .onnx in the model directory: ${dir}`)
+  if (!existsSync(tokens)) problems.push(`missing tokens.txt: ${tokens}`)
+  if (!existsSync(vad)) problems.push(`missing Silero VAD: ${vad}`)
   return {
     ok: problems.length === 0,
     model: model ?? null,
@@ -225,7 +225,7 @@ export interface DecodedWav {
 /** Read the PCM sample rate + Int16 samples out of a canonical RIFF/WAVE file. */
 export function decodeWav(bytes: Uint8Array): DecodedWav {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  if (view.getUint32(0, false) !== 0x52494646) throw new Error('不是 WAV 文件（缺少 RIFF 头）')
+  if (view.getUint32(0, false) !== 0x52494646) throw new Error('not a WAV file (missing RIFF header)')
   let offset = 12
   let sampleRate = 16_000
   let format = 1
@@ -241,7 +241,7 @@ export function decodeWav(bytes: Uint8Array): DecodedWav {
     } else if (id === 'data') {
       const end = Math.min(bytes.byteLength, body + size)
       if (format !== 1 || bits !== 16) {
-        throw new Error(`只支持 16-bit PCM WAV（拿到 format=${format} bits=${bits}）`)
+        throw new Error(`only 16-bit PCM WAV is supported (got format=${format} bits=${bits})`)
       }
       return {
         sampleRate,
@@ -250,7 +250,7 @@ export function decodeWav(bytes: Uint8Array): DecodedWav {
     }
     offset = body + size + (size % 2)
   }
-  throw new Error('WAV 里没有 data 块')
+  throw new Error('no data chunk in WAV')
 }
 
 export interface TranscribeResult {
@@ -326,7 +326,7 @@ export function createSenseVoiceTranscriber({
     if (engine) return engine
     if (!paths.ok) {
       const error = new Error(
-        `本地 SenseVoice 不可用：\n${paths.problems.map(line => `  · ${line}`).join('\n')}`
+        `local SenseVoice unavailable:\n${paths.problems.map(line => `  · ${line}`).join('\n')}`
       ) as CodedError
       error.code = 'MODEL_MISSING'
       throw error
@@ -334,9 +334,9 @@ export function createSenseVoiceTranscriber({
     const startedAt = Date.now()
     const sherpa = loadSherpa()
     const { model, tokens, vad } = paths
-    // paths.ok 已保证三者非空；这里显式收窄，避免把 null 传进原生配置。
+    // paths.ok already guarantees all three are non-null; narrow explicitly so null never reaches the native config.
     if (!model || !tokens || !vad) {
-      throw new Error(`本地 SenseVoice 不可用：模型路径解析不完整`)
+      throw new Error(`local SenseVoice unavailable: model paths resolved incompletely`)
     }
     const nativeConfig: NativeModelConfig = {
       featConfig: { sampleRate: 16_000, featureDim: 80 },
@@ -367,7 +367,7 @@ export function createSenseVoiceTranscriber({
       segmentSeconds + minSilenceSeconds + 1
     )
     lastLoadMs = Date.now() - startedAt
-    log(`[stt] SenseVoice 已加载 ${paths.model} (${lastLoadMs} ms)`)
+    log(`[stt] SenseVoice loaded ${paths.model} (${lastLoadMs} ms)`)
     engine = { sherpa, recognizer, detector, nativeConfig, sampleRate: 16_000 }
     return engine
   }
@@ -377,12 +377,12 @@ export function createSenseVoiceTranscriber({
     { language = 'zh' }: { language?: string } = {}
   ): TranscribeResult => {
     if (wavBytes.byteLength > maxAudioBytes) {
-      throw new Error(`音频过大：${wavBytes.byteLength} 字节`)
+      throw new Error(`audio too large: ${wavBytes.byteLength} bytes`)
     }
     const { recognizer, detector, nativeConfig } = load()
     const startedAt = Date.now()
     const { sampleRate, samples } = decodeWav(wavBytes)
-    if (sampleRate !== 16_000) throw new Error(`识别器只接受 16 kHz，拿到 ${sampleRate} Hz`)
+    if (sampleRate !== 16_000) throw new Error(`recogniser accepts 16 kHz only, got ${sampleRate} Hz`)
     const audio = Float32Array.from(samples, value => value / 32768)
 
     nativeConfig.modelConfig.senseVoice.language = language || 'auto'
@@ -445,17 +445,17 @@ export function createSenseVoiceTranscriber({
       }
     },
     dispose(): void {
-      // sherpa 的 session 由 native 持有，不显式 free 就会一直被 RSS 记着；
-      // 切精度/换模型时必须真的释放，否则内存里会同时躺着两份权重。
+      // sherpa's session is owned by native code; without an explicit free it stays in RSS —
+      // switching precision/model must really release it, or two sets of weights sit in memory at once.
       try {
         engine?.recognizer?.free?.()
       } catch {
-        /* 老版本 binding 没有 free() */
+        /* older bindings have no free() */
       }
       try {
         engine?.detector?.free?.()
       } catch {
-        /* 同上 */
+        /* same as above */
       }
       engine = null
       lastLoadMs = null

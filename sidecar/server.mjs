@@ -27,27 +27,28 @@ const DEFAULT_KEY_MAP = {
   Backquote: { single: "swallow" },
   F5: { single: "swallow" },
   Back: { single: "stop" },
-  // Chromecast 的输入源键：系统不认这个 HID usage，按下去 macOS 什么都不做，
-  // 所以它是整台遥控器上唯一干净的「第二功能键」。单击开新会话。
+  // The Chromecast input-source key: the system does not know this HID usage, so macOS does
+  // nothing when it is pressed — the only clean "second function key" on the whole remote.
+  // Single press opens a new session.
   InputSource: { single: "new-session" }
 };
 const DEFAULT_HID_KEYS = [
-  // 小米蓝牙语音遥控器：Back、音量走 page 0x07
+  // Xiaomi BT Remote 2: Back and volume arrive on page 0x07
   "Back",
   "AudioVolumeUp",
   "AudioVolumeDown",
   "AudioVolumeMute",
-  // Chromecast with Google TV 遥控器：主集合是 page 0x0C（Consumer Control），
-  // 有独立的确认键与方向键（小米那边中键就是语音键，不会产生这些 code）。
+  // Chromecast with Google TV remote: the primary collection is page 0x0C (Consumer Control),
+  // with a separate OK key and d-pad (on the Xiaomi the middle key is the voice key, so these codes never appear).
   "Enter",
   "Home",
   "ArrowUp",
   "ArrowDown",
   "ArrowLeft",
   "ArrowRight",
-  // 专用键：默认只做「识别可得」，不预置任何动作——Power 会被 macOS 直接
-  // 消费（按下去就锁屏/睡眠），媒体键会被系统当媒体键处理，绑 Hermes 动作
-  // 只会让「想用遥控器」变成「把电脑锁了」。
+  // Dedicated keys: recognised but deliberately unbound — macOS consumes Power itself (pressing
+  // it locks/sleeps the machine) and treats media keys as media keys, so binding Hermes actions to
+  // them would turn "use the remote" into "lock my computer".
   "Power",
   "InputSource",
   "Netflix",
@@ -74,7 +75,7 @@ const DEFAULTS = {
   sttApiKey: "",
   deviceId: "",
   deviceName: "",
-  // 按键归属：'active' = 只有当前生效那台管事（默认）；'any' = 两台都认。
+  // Key ownership: 'active' = only the currently active remote counts (default); 'any' = both count.
   keyFilter: "active",
   modelDir: "",
   vadModel: "",
@@ -149,14 +150,14 @@ function seedFromDsh() {
     const seeded = readJson(DSH_SETTINGS, null);
     if (seeded && typeof seeded.values === "object" && seeded.values !== null) {
       writeJsonAtomic(SETTINGS_FILE, { version: 1, values: seeded.values, seededFrom: DSH_SETTINGS });
-      log(`\u5DF2\u4ECE DSH \u8FC1\u79FB\u8BBE\u7F6E ${DSH_SETTINGS}`);
+      log(`migrated settings from DSH ${DSH_SETTINGS}`);
     }
   }
   if (!existsSync(DEVICE_FILE) && existsSync(DSH_DEVICE)) {
     const device2 = readJson(DSH_DEVICE, null);
     if (device2 && typeof device2.id === "string" && device2.id) {
       writeJsonAtomic(DEVICE_FILE, device2);
-      log(`\u5DF2\u4ECE DSH \u8FC1\u79FB\u4E0A\u6B21\u8BBE\u5907 ${device2.name ?? device2.id}`);
+      log(`migrated last device from DSH ${device2.name ?? device2.id}`);
     }
   }
 }
@@ -241,7 +242,7 @@ function validatePhraseRefs(keyMap, phrases) {
     for (const slot of ["single", "double", "long"]) {
       const value = binding?.[slot];
       if (value && typeof value === "object" && value.action === "phrase" && !(value.name in phrases)) {
-        throw new Error(`\u6309\u952E ${code} \u7684 ${slot} \u5F15\u7528\u4E86\u4E0D\u5B58\u5728\u7684\u5E38\u7528\u8BED\u300C${value.name}\u300D`);
+        throw new Error(`key ${code} ${slot} references unknown phrase "${value.name}"`);
       }
     }
   }
@@ -282,10 +283,10 @@ function openAiTranscriber(config2) {
     });
     if (!response.ok) {
       const detail = (await response.text().catch(() => "")).slice(0, 300);
-      throw new Error(`\u8BC6\u522B\u670D\u52A1 ${response.status}: ${detail || response.statusText}`);
+      throw new Error(`recognition service ${response.status}: ${detail || response.statusText}`);
     }
     const payload = await response.json();
-    if (typeof payload?.text !== "string") throw new Error("\u8BC6\u522B\u670D\u52A1\u6CA1\u6709\u8FD4\u56DE text");
+    if (typeof payload?.text !== "string") throw new Error("recognition service returned no text");
     return { text: payload.text };
   };
 }
@@ -298,7 +299,7 @@ function transcriberFor(config2) {
   if (!local.paths.ok) {
     return async () => {
       throw new Error(
-        `\u672A\u914D\u7F6E\u8BED\u97F3\u8BC6\u522B\uFF1A\u672C\u5730 SenseVoice \u6A21\u578B\u7F3A\u5931\uFF08${local.paths.problems.join("\uFF1B")}\uFF09\uFF0C\u4E5F\u6CA1\u6709\u586B\u8BC6\u522B\u670D\u52A1\u5730\u5740`
+        `no speech recognition configured: local SenseVoice model missing (${local.paths.problems.join("; ")}), and no recognition service URL set`
       );
     };
   }
@@ -330,7 +331,7 @@ let appliedProfileId = currentProfile()?.id ?? null;
 const unknownProfilesNoted = /* @__PURE__ */ new Set();
 noteUnknownProfile(device && device.name || "");
 const buildLocal = () => createSenseVoiceTranscriber({
-  // 未配置 = falsy：null/undefined 在 sensevoice 里走同一条 env/默认值回退路径。
+  // Unset = falsy: null/undefined take the same env/default fallback path inside sensevoice.
   modelDir: config.modelDir || void 0,
   vadModel: config.vadModel || void 0,
   modelFile: config.modelFile || void 0,
@@ -359,7 +360,7 @@ const transport = new SidecarTransport({
 function noteUnknownProfile(name) {
   if (!name || currentProfile() || unknownProfilesNoted.has(name)) return;
   unknownProfilesNoted.add(name);
-  log(`\u672A\u767B\u8BB0\u7684\u578B\u53F7 device=${name}\uFF0C\u628A\u5B83\u52A0\u8FDB ${DEVICES_DIR}/xxx.json`);
+  log(`unregistered model device=${name}, add it as ${DEVICES_DIR}/xxx.json`);
 }
 function syncProfileDefaults() {
   const profile = currentProfile();
@@ -367,7 +368,7 @@ function syncProfileDefaults() {
   appliedProfileId = profile.id;
   config = mergeConfig(savedValues());
   applyConfigToRuntime();
-  log(`\u6309\u952E\u9ED8\u8BA4\u5DF2\u6309\u578B\u53F7\u300C${profile.label}\u300D\uFF08${profile.id}\uFF09\u6D3E\u751F\uFF0Csettings.json \u91CC\u7684\u914D\u7F6E\u4ECD\u4F18\u5148`);
+  log(`key defaults derived from model "${profile.label}" (${profile.id}); settings.json config still wins`);
 }
 function rememberDevice(next) {
   if (!next?.id) return;
@@ -375,7 +376,7 @@ function rememberDevice(next) {
   try {
     writeJsonAtomic(DEVICE_FILE, { id: device.id, name: device.name, at: Date.now() });
   } catch (error) {
-    log(`\u5199\u5165\u8BBE\u5907\u7F13\u5B58\u5931\u8D25: ${error instanceof Error ? error.message : String(error)}`);
+    log(`failed to write device cache: ${error instanceof Error ? error.message : String(error)}`);
   }
   noteUnknownProfile(device.name);
   syncProfileDefaults();
@@ -386,17 +387,17 @@ transport.on("connected", rememberDevice);
 transport.on("ready", rememberDevice);
 const service = new RemoteMicService({
   transport,
-  // 'active' 模式下用来判断谁是「当前那台」：优先桥真实连上的设备名
-  // （device 由桥的 device 事件更新），桥还没 ready 时退回配置里的目标名。
+  // In 'active' mode this decides who "the current one" is: prefer the device name the bridge really
+  // connected to (device is updated by the bridge's device events); before ready, fall back to the configured target name.
   targetDeviceName: () => device && device.name || config.deviceName || "",
-  // 动态读配置，改 keyFilter 不需要重启（applyPatch 直接生效）。
+  // Config is read dynamically: changing keyFilter needs no restart (applyPatch takes effect immediately).
   keyFilter: () => config.keyFilter || "active",
-  // 按键查表：型号注册表优先、内置表兜底（POST /devices/reload 换注册表后立即生效）。
+  // Key lookup: model registry first, built-in table as fallback (effective immediately after POST /devices/reload).
   resolveCode,
   transcribe: transcriberFor(config),
   preflight: () => {
     if (!existsSync(BRIDGE_PATH)) {
-      return `\u627E\u4E0D\u5230\u84DD\u7259\u6865 ${BRIDGE_PATH}\uFF08\u91CD\u65B0\u5B89\u88C5\u63D2\u4EF6\u5373\u53EF\u4FEE\u597D\uFF09`;
+      return `Bluetooth bridge not found at ${BRIDGE_PATH} (reinstalling the plugin fixes this)`;
     }
     try {
       if ((statSync(BRIDGE_PATH).mode & 73) === 0) chmodSync(BRIDGE_PATH, 493);
@@ -430,7 +431,7 @@ service.on("transcript", (entry) => {
   log(`[stt] ${entry.text.slice(0, 120)}`);
 });
 service.on("error", ({ message }) => {
-  log(`[stt] \u5931\u8D25: ${message}`);
+  log(`[stt] failed: ${message}`);
   pushEvent("error", { message });
 });
 service.on("notice", (notice) => {
@@ -443,9 +444,9 @@ transport.on("state", ({ state }) => {
   bridgeStateSeen = true;
   clockState = state;
   void clockState;
-  log(`[bridge] \u84DD\u7259\u72B6\u6001 ${state}`);
+  log(`[bridge] bluetooth state ${state}`);
 });
-const BLUETOOTH_AUTH_HINT = "\u84DD\u7259\u672A\u5C31\u7EEA\uFF1AmacOS \u6CA1\u6709\u7ED9\u672C\u8FDB\u7A0B\u84DD\u7259\u6743\u9650\uFF08\u7CFB\u7EDF\u8BBE\u7F6E \u25B8 \u9690\u79C1\u4E0E\u5B89\u5168\u6027 \u25B8 \u84DD\u7259\uFF0C\u52FE\u9009 Hermes / osascript \u540E\u91CD\u542F Hermes\uFF09\uFF0C\u6216\u7CFB\u7EDF\u84DD\u7259\u88AB\u5173\u95ED";
+const BLUETOOTH_AUTH_HINT = "Bluetooth not ready: macOS has not granted this process Bluetooth permission (System Settings \u25B8 Privacy & Security \u25B8 Bluetooth \u2014 tick Hermes / osascript, then restart Hermes), or system Bluetooth is off";
 function armAuthWatch() {
   const timer = setTimeout(() => {
     if (bridgeStateSeen) return;
@@ -465,7 +466,7 @@ function appendHistory(entry) {
     writeFileSync(HISTORY_FILE, `${kept.join("\n")}
 `, { mode: 384 });
   } catch (error) {
-    log(`\u5199\u5165\u5386\u53F2\u5931\u8D25: ${error instanceof Error ? error.message : String(error)}`);
+    log(`failed to write history: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 function readHistory(limit = 50) {
@@ -569,9 +570,9 @@ function editable(current) {
 }
 const EDITABLE_KEYS = new Set(Object.keys(editable(DEFAULTS)));
 function applyPatch(patch) {
-  if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("patch \u5FC5\u987B\u662F\u5BF9\u8C61");
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("patch must be an object");
   const unknown = Object.keys(patch).filter((key) => !EDITABLE_KEYS.has(key));
-  if (unknown.length > 0) throw new Error(`\u672A\u77E5\u914D\u7F6E\u9879: ${unknown.join(", ")}`);
+  if (unknown.length > 0) throw new Error(`unknown config keys: ${unknown.join(", ")}`);
   const normalized = mergeConfig({ ...savedValues(), ...pickSaved(patch) });
   validatePhraseRefs(normalized.keyMap, normalized.phrases);
   const saved = { ...savedValues() };
@@ -585,16 +586,16 @@ function applyPatch(patch) {
   if (["modelDir", "vadModel", "modelFile", "precision"].some((key) => key in patch)) {
     local.dispose();
     local = buildLocal();
-    log(`\u8BC6\u522B\u6A21\u578B\u5DF2\u5207\u6362: ${local.paths.model || "\uFF08\u7F3A\u5931\uFF09"} \xB7 ${local.paths.precision || "?"}`);
+    log(`recognition model switched: ${local.paths.model || "(missing)"} \xB7 ${local.paths.precision || "?"}`);
   }
   applyConfigToRuntime();
   if (`${config.deviceId}\0${config.deviceName}` !== previousDevice) {
     refreshBridgeArgs();
-    log(`\u6865\u53C2\u6570\u5DF2\u66F4\u65B0: ${bridgeArgs.join(" ")}`);
+    log(`bridge arguments updated: ${bridgeArgs.join(" ")}`);
     device = config.deviceId ? { id: config.deviceId, name: config.deviceName || "" } : device;
-    void service.restart().catch((error) => log(`\u6309\u65B0\u8BBE\u5907\u91CD\u542F\u5931\u8D25: ${error instanceof Error ? error.message : String(error)}`));
+    void service.restart().catch((error) => log(`restart for new device failed: ${error instanceof Error ? error.message : String(error)}`));
   }
-  log(`\u8BBE\u7F6E\u5DF2\u66F4\u65B0: ${Object.keys(patch).join(", ") || "\u7A7A\u8865\u4E01"}`);
+  log(`settings updated: ${Object.keys(patch).join(", ") || "empty patch"}`);
   return editable(config);
 }
 function pickSaved(patch) {
@@ -623,7 +624,7 @@ function resetConfig() {
   local.dispose();
   local = buildLocal();
   applyConfigToRuntime();
-  log("\u8BBE\u7F6E\u5DF2\u6062\u590D\u9ED8\u8BA4");
+  log("settings restored to defaults");
   return editable(config);
 }
 function listDevices(seconds = 4) {
@@ -706,7 +707,7 @@ function readBody(req, limit = 64 * 1024) {
     req.on("data", (chunk) => {
       size += chunk.length;
       if (size > limit) {
-        reject(new Error("\u8BF7\u6C42\u4F53\u8FC7\u5927"));
+        reject(new Error("request body too large"));
         req.destroy();
         return;
       }
@@ -717,7 +718,7 @@ function readBody(req, limit = 64 * 1024) {
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
       } catch (error) {
-        reject(new Error(`JSON \u89E3\u6790\u5931\u8D25: ${error instanceof Error ? error.message : String(error)}`));
+        reject(new Error(`JSON parse failed: ${error instanceof Error ? error.message : String(error)}`));
       }
     });
     req.on("error", reject);
@@ -756,8 +757,8 @@ function startSupervisor() {
   supervisorTimer = setInterval(() => {
     if (!config.autoStart || userStopped) return;
     if (service.state !== "stopped") return;
-    log("[supervisor] \u670D\u52A1\u5904\u4E8E stopped\uFF08\u975E\u7528\u6237\u4E3B\u52A8\u505C\u6B62\uFF09\uFF0C\u81EA\u52A8\u91CD\u65B0\u8FDE\u63A5");
-    void serialize(() => service.start()).catch((error) => log(`[supervisor] \u91CD\u542F\u5931\u8D25: ${error instanceof Error ? error.message : String(error)}`));
+    log("[supervisor] service is stopped (not by the user), reconnecting automatically");
+    void serialize(() => service.start()).catch((error) => log(`[supervisor] restart failed: ${error instanceof Error ? error.message : String(error)}`));
   }, 15e3);
   if (typeof supervisorTimer.unref === "function") supervisorTimer.unref();
 }
@@ -793,7 +794,7 @@ const server = createServer(async (req, res) => {
         if (restarted) {
           await serialize(() => service.restart());
         }
-        log(`\u8BBE\u5907\u578B\u53F7\u5DF2\u91CD\u8F7D\uFF1A${registry.profiles.length} \u4E2A\u578B\u53F7\uFF0C\u5F53\u524D=${afterId || "\u672A\u767B\u8BB0"}${afterId !== beforeId ? "\uFF08\u578B\u53F7\u5DF2\u5207\u6362\uFF09" : ""}${argsChanged ? "\uFF0C\u6865\u53C2\u6570\u5DF2\u66F4\u65B0" : ""}`);
+        log(`device models reloaded: ${registry.profiles.length} profiles, current=${afterId || "unregistered"}${afterId !== beforeId ? " (model switched)" : ""}${argsChanged ? ", bridge arguments updated" : ""}`);
         return json(res, 200, {
           ok: true,
           profileId: afterId,
@@ -821,7 +822,7 @@ const server = createServer(async (req, res) => {
         const samplePath = join(ROOT, "assets", "sample-zh.wav");
         const requested = body?.file ? String(body.file) : "";
         const source = !requested ? samplePath : requested === "last" ? LAST_WAV : resolvePath(requested);
-        if (!existsSync(source)) return json(res, 404, { error: `\u6CA1\u6709\u53EF\u7528\u7684\u6D4B\u8BD5\u97F3\u9891\uFF1A${source}` });
+        if (!existsSync(source)) return json(res, 404, { error: `no test audio available: ${source}` });
         const transcribe = transcriberFor(config);
         const startedAtMs = Date.now();
         const runOnce = async (file) => {
@@ -852,7 +853,7 @@ const server = createServer(async (req, res) => {
       case "POST /mock/transcript": {
         const body = await readBody(req);
         const text = String(body?.text || "").trim();
-        if (!text) throw new Error("\u7F3A\u5C11 text");
+        if (!text) throw new Error("missing text");
         const entry = { text, at: Date.now(), audioSeconds: 0, inferenceSeconds: 0, durationMs: 0, mock: true };
         fallbackPending = entry;
         pushEvent("transcript", entry);
@@ -867,10 +868,10 @@ const server = createServer(async (req, res) => {
           microphone: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
         };
         const target = targets[pane];
-        if (!target) throw new Error(`\u672A\u77E5\u9762\u677F: ${pane}`);
+        if (!target) throw new Error(`unknown pane: ${pane}`);
         const child = spawn("open", [target], { stdio: "ignore", detached: true });
         child.unref();
-        log(`\u5DF2\u6253\u5F00\u7CFB\u7EDF\u8BBE\u7F6E\u9762\u677F\uFF1A${pane}`);
+        log(`opened system settings pane: ${pane}`);
         return json(res, 200, { ok: true, pane });
       }
       case "POST /restart":
@@ -885,7 +886,7 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { ok: true, state: service.state });
       case "POST /stop":
         userStopped = true;
-        log(`[http] /stop\uFF08${req.headers["user-agent"] || "unknown"}\uFF09`);
+        log(`[http] /stop (${req.headers["user-agent"] || "unknown"})`);
         await service.stop();
         return json(res, 200, { ok: true, state: service.state });
       case "POST /capture": {
@@ -900,11 +901,11 @@ const server = createServer(async (req, res) => {
           }
         }
         if (service.state !== "ready") {
-          return json(res, 503, { error: `\u94FE\u8DEF\u672A\u5C31\u7EEA\uFF1A${service.state}`, detail: lastDetail });
+          return json(res, 503, { error: `link not ready: ${service.state}`, detail: lastDetail });
         }
         const before = seq;
         service.openMicrophone();
-        log(`[capture] \u7B49\u5F85\u8BED\u97F3\uFF08\u8BF7\u5728\u8FD9 ${Math.round(waitMs / 1e3)} \u79D2\u5185\u6309\u4E00\u6B21\u9065\u63A7\u5668\u8BED\u97F3\u952E\uFF09`);
+        log(`[capture] waiting for speech (press the remote's voice key within ${Math.round(waitMs / 1e3)}s)`);
         const deadline = Date.now() + waitMs;
         while (Date.now() < deadline) {
           const hit = events.find((event) => event.seq > before && event.type === "transcript");
@@ -912,14 +913,14 @@ const server = createServer(async (req, res) => {
           await new Promise((done) => setTimeout(done, 120));
         }
         return json(res, 504, {
-          error: `\u7B49\u5F85\u8F6C\u5199\u8D85\u65F6\uFF08${waitMs}ms\uFF09`,
+          error: `timed out waiting for a transcript (${waitMs}ms)`,
           state: service.state,
           diagnostics: service.diagnostics
         });
       }
       case "POST /key": {
         const body = await readBody(req);
-        if (typeof body.code !== "string" || !body.code) throw new Error("\u7F3A\u5C11 code");
+        if (typeof body.code !== "string" || !body.code) throw new Error("missing code");
         pushEvent("key", { code: body.code, down: body.down !== false, source: "manual" });
         return json(res, 200, { ok: true });
       }
@@ -937,7 +938,7 @@ const server = createServer(async (req, res) => {
         if (existsSync(HISTORY_FILE)) writeFileSync(HISTORY_FILE, "", { mode: 384 });
         return json(res, 200, { ok: true });
       case "GET /audio/last": {
-        if (!existsSync(LAST_WAV)) return json(res, 404, { error: "\u8FD8\u6CA1\u6709\u5F55\u97F3" });
+        if (!existsSync(LAST_WAV)) return json(res, 404, { error: "no recording yet" });
         const bytes = readFileSync(LAST_WAV);
         res.writeHead(200, {
           "content-type": "audio/wav",
@@ -953,35 +954,35 @@ const server = createServer(async (req, res) => {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    log(`[http] ${req.method} ${url.pathname} \u5931\u8D25: ${message}`);
+    log(`[http] ${req.method} ${url.pathname} failed: ${message}`);
     return json(res, 400, { error: message });
   }
 });
 server.listen(PORT, "127.0.0.1", () => {
-  log(`baton daemon \u76D1\u542C 127.0.0.1:${PORT}\uFF08state=${STATE_DIR} bridge=${BRIDGE_PATH}\uFF09`);
+  log(`baton daemon listening on 127.0.0.1:${PORT} (state=${STATE_DIR} bridge=${BRIDGE_PATH})`);
   process.stdout.write(`${JSON.stringify({ port: PORT, pid: process.pid, stateDir: STATE_DIR })}
 `);
   try {
     execFileSync("pkill", ["-f", `^${BRIDGE_PATH}`], { stdio: "ignore" });
-    log("\u5DF2\u6E05\u7406\u6B8B\u7559\u7684 atvv-link \u8FDB\u7A0B");
+    log("cleaned up leftover atvv-link process");
   } catch {
   }
   startSupervisor();
   setTimeout(() => {
-    void refreshDevices(3).catch((error) => log(`\u8BBE\u5907\u626B\u63CF\u5931\u8D25: ${error instanceof Error ? error.message : String(error)}`));
+    void refreshDevices(3).catch((error) => log(`device scan failed: ${error instanceof Error ? error.message : String(error)}`));
   }, 6e3);
   const deviceTimer = setInterval(() => {
     void refreshDevices(3).catch(() => void 0);
   }, 5 * 60 * 1e3);
   if (typeof deviceTimer.unref === "function") deviceTimer.unref();
   if (config.autoStart) {
-    void serialize(() => service.start()).catch((error) => log(`\u542F\u52A8\u5931\u8D25: ${error instanceof Error ? error.message : String(error)}`));
+    void serialize(() => service.start()).catch((error) => log(`start failed: ${error instanceof Error ? error.message : String(error)}`));
   } else {
-    log("autoStart=false\uFF1A\u7B49\u5F85 /start");
+    log("autoStart=false: waiting for /start");
   }
 });
 server.on("error", (error) => {
-  log(`\u76D1\u542C\u5931\u8D25: ${error.message}`);
+  log(`listen failed: ${error.message}`);
   process.stderr.write(`listen ${PORT} failed: ${error.message}
 `);
   process.exit(3);
@@ -990,21 +991,21 @@ let shuttingDown = false;
 async function shutdown(reason) {
   if (shuttingDown) return;
   shuttingDown = true;
-  log(`\u9000\u51FA: ${reason}`);
+  log(`exit: ${reason}`);
   await service.stop().catch(() => void 0);
   server.close();
   process.exit(0);
 }
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
-process.on("uncaughtException", (error) => log(`\u672A\u6355\u83B7\u5F02\u5E38: ${error?.stack ?? error}`));
-process.on("unhandledRejection", (error) => log(`\u672A\u5904\u7406\u7684 Promise: ${error?.stack ?? error}`));
+process.on("uncaughtException", (error) => log(`uncaught exception: ${error?.stack ?? error}`));
+process.on("unhandledRejection", (error) => log(`unhandled promise rejection: ${error?.stack ?? error}`));
 if (PARENT_PID > 0) {
   const timer = setInterval(() => {
     try {
       process.kill(PARENT_PID, 0);
     } catch {
-      void shutdown(`\u7236\u8FDB\u7A0B ${PARENT_PID} \u5DF2\u9000\u51FA`);
+      void shutdown(`parent process ${PARENT_PID} has exited`);
     }
   }, 5e3);
   timer.unref?.();

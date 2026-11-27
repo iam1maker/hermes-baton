@@ -92,9 +92,9 @@ export function hidUsageToCode(page: number, usage: number): string | null {
         return 'AudioVolumeDown';
       case 0xe2:
         return 'AudioVolumeMute';
-      // Chromecast with Google TV 遥控器（VID 0x18D1 / PID 0x9450）的主集合是
-      // Consumer Control，方向与确认走标准 Menu 用法。实测：0x41=中键确认、
-      // 0x42/0x43/0x44/0x45=上/下/左/右、0x223=Home（AC Home）。
+      // Chromecast with Google TV remote (VID 0x18D1 / PID 0x9450): the primary collection is
+      // Consumer Control, and the d-pad / OK use the standard Menu usages. Measured: 0x41=OK (centre),
+      // 0x42/0x43/0x44/0x45=up/down/left/right, 0x223=Home (AC Home).
       case 0x41:
         return 'Enter';
       case 0x42:
@@ -107,9 +107,9 @@ export function hidUsageToCode(page: number, usage: number): string | null {
         return 'ArrowRight';
       case 0x223:
         return 'Home';
-      // 专用键：Google keylayout（Vendor_18d1_Product_9451.kl）里
-      // YouTube=0x0C0077、Netflix=0x0C0078；电源与输入源由实测时间戳对上
-      // （按电源键 macOS 立即锁屏 = 系统层级消费了这次 HID 事件）。
+      // Dedicated keys: in Google's keylayout (Vendor_18d1_Product_9451.kl)
+      // YouTube=0x0C0077, Netflix=0x0C0078; power and input-source were matched by observed
+      // timestamps (pressing power locks macOS instantly = the system consumed the HID event).
       case 0x77:
         return 'YouTube';
       case 0x78:
@@ -136,9 +136,9 @@ export function hidUsageToCode(page: number, usage: number): string | null {
       return 'F5';
     case 0x4a:
       return 'Home';
-    // 真机实测（固件 2671）：Back 键以键盘 usage 0xF1 上报、音量以 0x80/0x81 上报，
-    // 0xE9/0xEA 那种 consumer 形式在这台遥控器上从不出现。少了这三条就表现为
-    // 「按 Back 日志只有 [hid] unmapped，双击映射完全不触发」。
+    // Measured on real hardware (firmware 2671): the Back key reports as keyboard usage 0xF1 and
+    // volume as 0x80/0x81; the consumer forms 0xE9/0xEA never appear on this remote. Without these
+    // three entries the symptom is "press Back, the log only shows [hid] unmapped, the double-tap binding never fires".
     case 0xf1:
       return 'Back';
     case 0x80:
@@ -231,7 +231,7 @@ export class RemoteMicService extends TypedEmitter<RemoteMicServiceEvents> {
     this.#retryMaxMs = retryMaxMs;
     this.#targetDeviceName = typeof targetDeviceName === 'function' ? targetDeviceName : null;
     this.#keyFilter = typeof keyFilter === 'function' ? keyFilter : null;
-    // 按键查表可注入（服务端的型号注册表优先），不传就用内置 hidUsageToCode。
+    // Key lookup is injectable (the server's model registry wins); the built-in hidUsageToCode is the default.
     this.#resolveCode = typeof resolveCode === 'function' ? resolveCode : hidUsageToCode;
     this.#session = new AtvvSession();
     this.#utterances = new UtteranceBuffer({ gapMs, maxMs });
@@ -319,7 +319,7 @@ export class RemoteMicService extends TypedEmitter<RemoteMicServiceEvents> {
       this.setState('error', blocked);
       return;
     }
-    this.setState('starting', this.#retries > 0 ? `重连中（第 ${this.#retries} 次）` : undefined);
+    this.setState('starting', this.#retries > 0 ? `reconnecting (attempt ${this.#retries})` : undefined);
     try {
       await this.#transport.start();
       // stop()/restart() may have landed while the spawn was in flight.
@@ -381,8 +381,8 @@ export class RemoteMicService extends TypedEmitter<RemoteMicServiceEvents> {
       this.setState('ready');
     });
     transport.on('device', (device) => {
-      // 记住桥真正连上的那台：HID 旁听是全机的，两台遥控器平时都连着系统，
-      // 不记下来就没法判断这个按键该不该管。
+      // Remember which one the bridge really connected to: HID listening is machine-wide and both
+      // remotes are normally connected to the system, so without this a key cannot be attributed.
       this.#activeDevice = device && device.name ? String(device.name) : null;
       this.#ignoredDevices.clear();
       this.emit('device', device);
@@ -400,12 +400,13 @@ export class RemoteMicService extends TypedEmitter<RemoteMicServiceEvents> {
     transport.on('audio', ({ data }) => session.handleAudio(data));
     const seenUsages = new Set<string>();
     transport.on('hidkey', ({ page, usage, value, device }) => {
-      // 按键归属由配置决定（keyFilter）：
-      //   'active' —— 只有「当前生效的那台遥控器」管事（默认）。语音键本来就只走
-      //               连上的那台，按键也应跟着它，否则另一台在包里被压到就会误触。
-      //               expected 优先用桥真实连上的那台，桥还没上报时退回配置里的
-      //               目标设备；两者都拿不到就不过滤（设备名可能为 nil）。
-      //   'any'    —— 两台都认。留给「想拿哪台都能用」的人。
+      // Key ownership is decided by config (keyFilter):
+      //   'active' —— only "the remote currently in effect" counts (default). The voice key already
+      //               follows only the linked remote, and keys should follow it too, otherwise the
+      //               other remote getting knocked about in a bag fires them. expected prefers the
+      //               device the bridge really linked to, falls back to the configured target device
+      //               before the bridge reports, and filters nothing when neither is known (the name may be nil).
+      //   'any'    —— both count. For people who want either remote to work.
       const mode = this.#keyFilter ? String(this.#keyFilter() || 'active') : 'active';
       if (mode === 'active') {
         const expected = this.#activeDevice
@@ -413,7 +414,7 @@ export class RemoteMicService extends TypedEmitter<RemoteMicServiceEvents> {
         if (expected && device && String(device) !== expected) {
           if (!this.#ignoredDevices.has(String(device))) {
             this.#ignoredDevices.add(String(device));
-            this.#log(`[hid] 忽略非当前设备的按键 device=${device}（当前=${expected}）`);
+            this.#log(`[hid] ignoring key from a non-current device device=${device} (current=${expected})`);
           }
           return;
         }
@@ -495,8 +496,8 @@ export class RemoteMicService extends TypedEmitter<RemoteMicServiceEvents> {
       // Codec 0x02 means 16 kHz; older codecs report 8 kHz, which every filter
       // and the WAV header must follow instead of assuming 16 kHz.
       const sampleRate = this.#session.capabilities?.sampleRate ?? 16_000;
-      // Hermes 侧改动：固定的 200ms 切头会把短句吃光（1 秒的"喂"切完只剩 350ms，
-      // 识别必空），所以切头量随语句长度收缩，上限仍是用户配置的 trimMs。
+      // Hermes-side change: a fixed 200ms trim eats short utterances (a 1s "hey" has only 350ms left
+      // after trimming, so recognition always comes back empty), so the trim shrinks with the utterance; the cap is still the configured trimMs.
       const effectiveTrim = Math.min(this.#trimMs, Math.max(40, durationMs * 0.12));
       const prepared = prepareForTranscription(utterance.samples, {
         trimMs: effectiveTrim,
@@ -505,11 +506,11 @@ export class RemoteMicService extends TypedEmitter<RemoteMicServiceEvents> {
       });
       const preparedMs = Math.round((prepared.length / sampleRate) * 1000);
       if (preparedMs < 120) {
-        this.#log(`[stt] 音频过短（${preparedMs}ms），跳过识别`);
+        this.#log(`[stt] audio too short (${preparedMs}ms), skipping recognition`);
         this.emit('notice', {
           kind: 'too-short',
           audioMs: preparedMs,
-          message: `这条太短了（${preparedMs}ms），按住语音键多说两个字`,
+          message: `utterance too short (${preparedMs}ms)`,
         });
         this.setState('ready');
         return;
@@ -524,7 +525,7 @@ export class RemoteMicService extends TypedEmitter<RemoteMicServiceEvents> {
         this.emit('notice', {
           kind: 'empty',
           audioMs: preparedMs,
-          message: `没听清（${preparedMs}ms 音频），再说一次？`,
+          message: `no speech recognised (${preparedMs}ms of audio)`,
         });
         this.setState('ready');
         return;
