@@ -8,11 +8,15 @@ on:
   push:
     branches: [main]
   pull_request:
-    # A pull request runs nothing until a maintainer applies the `run-ci` label, and then it
-    # keeps running on every push while that label is present. `opened` and `reopened` are
-    # deliberately absent: a workflow that fires and then skips its only job leaves a
-    # *skipped* required check, which branch protection counts as satisfied.
-    types: [labeled, synchronize]
+    # `labeled` is the only pull_request event this workflow listens to, and the job below
+    # requires the `run-ci` label. Any other pull_request event (notably `synchronize`) would
+    # create a job whose `if` is false, and a skipped job reports a *skipped* required check,
+    # which branch protection counts as satisfied -- one push would then bypass CI completely.
+    # (Measured on a throwaway pull request: a single push with no label turned it CLEAN.)
+    # Listening to no event at all leaves the check at `Expected` and keeps the merge button
+    # disabled, which is the behaviour we want.
+    types: [labeled]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,10 +28,11 @@ concurrency:
 
 jobs:
   build-and-test:
-    # `main` always runs. A pull request runs only after a maintainer decides it is worth a
-    # runner: add the `run-ci` label (gh pr edit <n> --add-label run-ci).
+    # `main` and a manual dispatch always run. A pull request runs only after a maintainer
+    # decides it is worth a runner: `gh pr edit <n> --add-label run-ci`, or re-run a push that
+    # came after the label with `gh workflow run ci.yml --ref <branch>`.
     if: >-
-      github.event_name == 'push' ||
+      github.event_name != 'pull_request' ||
       contains(github.event.pull_request.labels.*.name, 'run-ci')
     # Linux runner: nothing here needs macOS (the Swift bridge is not built in CI),
     # and esbuild 0.28.2 output is byte-identical across platforms, which is what
