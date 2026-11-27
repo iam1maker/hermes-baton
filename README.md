@@ -458,9 +458,21 @@ python3 scripts/watch-keys.py     # tail key events out of the daemon
 
 `tests/` needs nothing but `node`; it stubs the SDK, React and the transport,
 and needs no Electron, gateway or hardware. `probe-routes.py` and
-`verify-gateway.py` attach to the running gateway and need the Hermes venv
-Python (the system 3.9 has no `hermes` package); `switch-device.py` and
+`verify-gateway.py` attach to the running gateway and need the venv that puts
+`hermes_cli` on `sys.path` (the system 3.9 has no `hermes` package), so give them
+its `site-packages`:
+
+```bash
+PYTHONPATH=$(ls -d ~/.hermes/installs/*/environments/*/venv/lib/python3*/site-packages | head -1) \
+  python3 scripts/probe-routes.py
+``` `switch-device.py` and
 `watch-keys.py` talk to `127.0.0.1:8791` directly and are plain stdlib.
+
+Nothing in this repository hardcodes an install path. The gateway scripts find
+the install at `~/.hermes/hermes-agent` and the profile at `~/.hermes`; override
+with `HERMES_APP_ROOT` (the directory holding `hermes-agent/`) and
+`HERMES_HOME` (the profile whose gateway is probed), or `HERMES_REPO` /
+`BATON_PROBE_HOME` when the layout is unusual.
 
 Generated products must be committed together with their sources -- see
 [`CONTRIBUTING.md`](CONTRIBUTING.md). Every user-facing string lives in

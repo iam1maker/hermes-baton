@@ -640,3 +640,24 @@ Also worth recording: `macos-14` runners are refused for this account
 (`The configuration 'macos-14-arm64-us-default' is not supported`), and nothing
 in the pipeline needs macOS -- esbuild 0.28.2 output is byte-identical on Linux,
 which the dirty-tree check confirmed.
+
+## Portability pass (2026-11-27, measured)
+
+Three scripts shipped with the author's install path hardcoded: `scripts/probe-routes.py`
+and `scripts/verify-gateway.py` (both advertised in the README) died at import time on any
+other machine, and `scripts/restart-and-verify.sh` pointed at the same absolute paths. A test
+fixture also carried an absolute path. They now discover the install from `HERMES_APP_ROOT`
+(the directory holding `hermes-agent/`) and the profile from `HERMES_HOME`, overridable with
+`HERMES_REPO` / `BATON_PROBE_HOME` / `BATON_PY` / `BATON_HERMES`.
+
+- `git grep -n "/Users/1maker" -- .` -> no matches.
+- `PYTHONPATH=<venv site-packages> python3 scripts/probe-routes.py` -> `/health`, `/state`,
+  `/devices?seconds=2` all 200 after the change (daemon pid 97649, state `ready`).
+- `PYTHONPATH=<venv site-packages> python3 scripts/verify-gateway.py` -> `RESULT PASS`
+  (selftest 6.685 s -> 0.117 s; `settings` 400 is the expected "route is mounted" answer).
+- `node dev/typecheck.mjs` clean (24 files), `node dev/build.mjs` ok (19 modules),
+  `bash tests/run.sh` 5/5 suites / 73 assertions / EXIT 0, working tree clean afterwards.
+
+The README now states the `PYTHONPATH` incantation, because running these two scripts with the
+gateway's own interpreter still fails on `ModuleNotFoundError: No module named 'ruamel'`
+until the venv's `site-packages` is on the path.
