@@ -28,20 +28,22 @@ Two ready examples ship with the plugin:
 ## 1. Get VID / PID from the system
 
 ```bash
-hidutil list | grep -iE 'remote|遥控|Chromecast|Xiaomi'
+hidutil list | grep -iE 'remote|Chromecast|Xiaomi'
 ```
 
 Real output from a machine with both remotes connected (columns: `VendorID
 ProductID LocationID UsagePage Usage RegistryID Transport Class Product …`):
 
 ```
-0x2717  0x32b8  0x2bd1a498  1   6   0x10000517b  Bluetooth Low Energy  AppleUserHIDEventService  小米蓝牙语音遥控器
+0x2717  0x32b8  0x2bd1a498  1   6   0x10000517b  Bluetooth Low Energy  AppleUserHIDEventService  Xiaomi BT Remote 2
 0x18d1  0x9450  0x1a3bc31e  12  1   0x1000122ba  Bluetooth Low Energy  AppleUserHIDEventService  Chromecast Remote
 0x18d1  0x9450  0x1a3bc31e  12  1   0x1000122b7  Bluetooth Low Energy  IOHIDUserDevice           Chromecast Remote
 ```
 
 Each remote appears at least twice — once as `AppleUserHIDEventService`, once as
-`IOHIDUserDevice` — and the two rows carry the same VID/PID. The `UsagePage`
+`IOHIDUserDevice` — and the two rows carry the same VID/PID. Product names are
+whatever macOS reports in the current system language; the rows above use the
+English display names the shipped profiles use. The `UsagePage`
 column tells you the device's main collection: `1` is Generic Desktop (keyboard
 collection), `12` is Consumer Control. That is a hint about which `pages` the
 profile needs, not a substitute for testing.
@@ -74,7 +76,7 @@ Verified output (names and UUIDs vary):
 ```json
 {"event":"state","value":"poweredOn"}
 {"event":"candidate","name":"Chromecast Remote","connected":true,"id":"1EC33B1A-…"}
-{"event":"candidate","name":"小米蓝牙语音遥控器","connected":true,"id":"98A4D12B-…"}
+{"event":"candidate","name":"Xiaomi BT Remote 2","connected":true,"id":"98A4D12B-…"}
 {"event":"log","message":"scanning for 4.0s"}
 {"event":"bye","reason":"list complete"}
 ```
@@ -156,7 +158,7 @@ every button once. Unknown usages are logged once each:
 Read it from the daemon log:
 
 ```bash
-tail -f ~/.hermes/baton/daemon.out
+tail -f ~/.hermes/baton/daemon.log
 ```
 
 The format is exactly
@@ -212,8 +214,9 @@ daemon and Hermes keep running. The response tells you what happened:
 - `restarted: false` means nothing changed; if you expected a change, the file is
   not where the daemon reads it (`state.devicesDir` in `/state` says where).
 - `profileId` stays `null` and the log gets
-  `未登记的型号 device=…，把它加进 …/devices/xxx.json` when no profile's
-  `nameHints` match. An unregistered remote still works — just with no
+  `[profile] unregistered model device=… -- add it as …/devices/xxx.json` when no
+  profile's `nameHints` match. (The message is worded by the daemon; what
+  matters is that it names the device and the directory.) An unregistered remote still works — just with no
   model-specific keys.
 - If the route 404s through the *gateway*
   (`/api/plugins/baton/devices/reload`) while working on `127.0.0.1:8791`, that

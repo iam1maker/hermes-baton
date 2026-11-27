@@ -77,7 +77,7 @@ Read these as "what this machine did", not as a benchmark:
 |---|---|---|
 | model load (cold, includes VAD) | 346–463 ms | 656 ms |
 | one 6.685 s sample (`sidecar/assets/sample-zh.wav`) | 0.112–0.116 s | 0.095–0.101 s |
-| transcript | `这是共存链路测试小米遥控器同时等键盘和麦克风。` | same sentence, with punctuation |
+| transcript | plain sentence, no punctuation | the same sentence, with punctuation |
 | RSS after a clean start | ~937 MiB | ~1250 MiB |
 
 Switching precision calls `dispose()` and rebuilds the session, but ONNX

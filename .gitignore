@@ -2,10 +2,10 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# 测试 harness 的拷贝产物（run.sh 每次从 desktop/plugin.js 复制）
+# test harness copy (run.sh copies desktop/plugin.js on every run)
 tests/plugin.js
 
-# 构建/运行产物
+# build / runtime artifacts
 sidecar/bin/*.bak-*
 sidecar/node_modules/
 node_modules/

@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Baton 安装脚本：把本仓库装成某个 Hermes profile 的插件，并可选装桌面半。
+# Baton installer: install this repository as a plugin in a Hermes profile, and
+# optionally install the desktop half.
 #
-#   bash scripts/install.sh                 # 装到 default profile
-#   bash scripts/install.sh forge           # 装到 forge profile
+#   bash scripts/install.sh                 # install into the default profile
+#   bash scripts/install.sh forge           # install into the forge profile
 #   bash scripts/install.sh forge --with-desktop
 #
-# 只做三件事：复制插件目录、复制桌面插件（可选）、打印下一步要你手动跑的 enable 命令。
-# 不碰 config.yaml、不碰 .env、不写任何密钥。
+# It does exactly three things: copy the plugin directory, copy the desktop
+# plugin (optional), and print the enable command you still have to run. It does
+# not touch config.yaml, does not touch .env, and writes no secrets.
 set -euo pipefail
 
 PROFILE="${1:-default}"
@@ -29,8 +31,8 @@ else
 fi
 
 if [ ! -d "$HERMES_HOME_DIR" ]; then
-  echo "找不到 profile 目录：$HERMES_HOME_DIR" >&2
-  echo "先运行一次 Hermes，或检查 profile 名（ls ~/.hermes/profiles）" >&2
+  echo "profile directory not found: $HERMES_HOME_DIR" >&2
+  echo "Run Hermes once first, or check the profile name (ls ~/.hermes/profiles)" >&2
   exit 1
 fi
 
@@ -38,16 +40,19 @@ PLUGINS_DIR="$HERMES_HOME_DIR/plugins"
 DESKTOP_DIR="$HOME/.hermes/desktop-plugins/$PLUGIN_ID"
 DEST="$PLUGINS_DIR/$PLUGIN_ID"
 
-# 源码目录本身可能就是安装目录（在 profile 里开发时就是如此）。此时 rm -rf 会把源码删掉，
-# 而随后的 cp 再从空目录复制 —— 整个仓库就没了。所以这种情况直接跳过复制。
+# The source directory may itself be the install directory (that is the case when
+# developing inside a profile). In that case rm -rf would delete the source and
+# the following cp would copy from an empty directory -- the whole repository
+# would be gone. So skip the copy in that situation.
 if [ "$DESKTOP_ONLY" = "no" ]; then
   if [ -d "$DEST" ] && [ "$(cd "$DEST" && pwd -P)" = "$(cd "$SRC" && pwd -P)" ]; then
-    echo "→ 源码目录就是安装目录（$DEST），跳过复制"
+    echo "-> source directory is the install directory ($DEST), skipping copy"
   else
-    echo "→ 插件 → $DEST"
+    echo "-> plugin -> $DEST"
     rm -rf "$DEST"
     mkdir -p "$DEST"
-    # 只复制运行必需的东西：Python 半 + sidecar（含已编译的桥与型号注册表）+ 文档
+    # Copy only what the runtime needs: the Python half + sidecar (with the
+    # compiled bridge and the device registry) + docs
     for item in __init__.py runtime.py plugin.yaml dashboard sidecar docs scripts README.md LICENSE; do
       [ -e "$SRC/$item" ] && cp -R "$SRC/$item" "$DEST/"
     done
@@ -58,49 +63,56 @@ fi
 
 if [ "$WITH_DESKTOP" = "yes" ]; then
   if [ -f "$SRC/desktop/plugin.js" ]; then
-    echo "→ 桌面半 → $DESKTOP_DIR"
+    echo "-> desktop half -> $DESKTOP_DIR"
     mkdir -p "$DESKTOP_DIR"
     cp -R "$SRC/desktop/." "$DESKTOP_DIR/"
-    # 刻意让这份副本与插件包内的 desktop/plugin.js 字节不同：Hermes 每次启动都会跑
-    # reconcileUnifiedDesktopHalves，只有当两处 plugin.js 完全相同才写 .hermes-package.json
-    # 把目录收编为「统一包的桌面半」，而带 marker 的包在 runtime-loader 里是 opt-in
-    # （defaultEnabled=false），侧栏不会出现入口。保持 marker-less 时它按用户自装插件加载。
-    if ! grep -q '\[本机副本\]' "$DESKTOP_DIR/plugin.js" 2>/dev/null; then
+    # Deliberately make this copy byte-different from the packaged
+    # desktop/plugin.js: on every launch Hermes runs
+    # reconcileUnifiedDesktopHalves, and only when the two plugin.js files are
+    # identical does it write .hermes-package.json and adopt the directory as
+    # the "unified package desktop half". A package with that marker is opt-in
+    # in runtime-loader (defaultEnabled=false), so no sidebar entry appears.
+    # Without the marker it loads as a user-installed plugin.
+    if ! grep -q '\[local copy\]' "$DESKTOP_DIR/plugin.js" 2>/dev/null; then
       cat >> "$DESKTOP_DIR/plugin.js" <<'MARK'
 
-// [本机副本] 刻意与插件包内 desktop/plugin.js 保持字节不同 —— Hermes 的 reconcile 只有在
-// 「与包内源文件完全相同」时才把该目录收编为统一包的 desktop 半（写 .hermes-package.json，
-// 于是 runtime-loader 的 defaultEnabled=false，必须手动启用一次）。保持 marker-less 时它按
-// 「用户自己放的桌面插件」加载：默认启用，也不会被包更新覆盖。同步包内代码时别带上这一段。
+// [local copy] Deliberately byte-different from the packaged desktop/plugin.js:
+// Hermes's reconcile only adopts this directory as the unified package's desktop
+// half when it is identical to the packaged file (it then writes
+// .hermes-package.json, so runtime-loader's defaultEnabled=false and the plugin
+// must be enabled by hand once). Without the marker it loads as a desktop plugin
+// the user installed: enabled by default, and not overwritten by package updates.
+// Do not carry this block when syncing code back into the package.
 MARK
     fi
   else
-    echo "! 仓库里没有 desktop/plugin.js，跳过桌面半" >&2
+    echo "! no desktop/plugin.js in the repository, skipping the desktop half" >&2
   fi
 fi
 
 if [ "$DESKTOP_ONLY" = "yes" ]; then
   cat <<EOF
 
-桌面半已刷新：$DESKTOP_DIR/plugin.js
-重启 Hermes 应用后在侧栏「$PLUGIN_ID」查看。
+Desktop half refreshed: $DESKTOP_DIR/plugin.js
+Restart the Hermes app and look for "Voice Remote" in the sidebar.
 EOF
   exit 0
 fi
 
 cat <<EOF
 
-装好了。还差三步（都需要你自己执行）：
+Installed. Three steps left (all of them yours to run):
 
-1) 启用插件：
+1) Enable the plugin:
    HERMES_HOME="$HERMES_HOME_DIR" hermes plugins enable $PLUGIN_ID
 
-2) 语音模型（二选一）：
-   node "$PLUGINS_DIR/$PLUGIN_ID/scripts/fetch-models.mjs"        # 下载 SenseVoice int8 + VAD
-   # 或：在页面「识别」卡里填已有模型目录 / 填外部 STT 服务（OpenAI 兼容）
+2) Speech models (pick one):
+   node "$PLUGINS_DIR/$PLUGIN_ID/scripts/fetch-models.mjs"        # download SenseVoice int8 + VAD
+   # or: enter an existing model directory / an external OpenAI-compatible STT service in the page
 
-3) 重启一次网关，让新路由挂上（应用重启不等于网关重启）：
+3) Restart the gateway once so the new routes mount (an app restart is not a gateway restart):
    hermes gateway restart
 
-桌面半（若装了）需要在 Hermes 设置 ▸ 能力 ▸ 插件里打开一次开关，页面才会出现在侧栏。
+The desktop half (if installed) must be enabled once under Hermes Settings > Capabilities > Plugins
+before the page appears in the sidebar.
 EOF

@@ -1,99 +1,144 @@
-# 设计：Baton（原 baton）
+# Design: Baton
 
-一根指挥棒驱动整个乐团。插件把「物理遥控器」变成 Hermes 的输入与控制面：语音进输入框、按键触发动作。
-名字刻意不绑定「语音」或「遥控」，因为它描述的是**一类输入设备**，以后接旋钮、脚踏板、MIDI 控制器都不需要改名。
+One baton conducts the whole orchestra. The plugin turns a physical remote into
+an input and control surface for Hermes: voice goes into the composer, keys
+trigger actions. The name deliberately avoids "voice" or "remote", because what
+it describes is a **class of input device** -- a knob, a foot pedal or a MIDI
+controller could be added later without renaming anything.
 
 ---
 
-## 1. 分五层，改动落在最外面那一层
+## 1. Five layers; a change lands in the outermost one
 
+```text
++-- renderer   desktop-plugins/baton/plugin.js   page, key engine, composer insertion
+|              (product of src/desktop/plugin.tsx)
++-- gateway    dashboard/plugin_api.py            /api/plugins/baton/*  <- renderer talks only to this
++-- process    runtime.py + __init__.py           spawns/supervises the sidecar, registers the agent tool
++-- service    sidecar/server.mjs                 event stream, key engine, STT, config, HTTP 8791
+|              (product of src/sidecar/server.mts)
++-- adapter    sidecar/devices/*.json             the model lives here, not in code
++-- transport  sidecar/native/main.swift (atvv-link)  BLE ATVV voice stream + IOHIDManager key sniffing
 ```
-┌─ 渲染层  desktop-plugins/baton/plugin.js     页面、按键引擎、输入框注入（产物 = src/desktop/plugin.tsx）
-├─ 网关层  dashboard/plugin_api.py              /api/plugins/baton/*  ← 渲染层只跟它说话
-├─ 进程层  runtime.py + __init__.py             拉起/守护 sidecar，注册 agent 工具 baton
-├─ 服务层  sidecar/server.mjs                   事件流、按键引擎、STT、配置、HTTP 8791（产物 = src/sidecar/server.mts）
-├─ 适配层  sidecar/devices/*.json               ★ 型号在这里，不在代码里
-└─ 传输层  sidecar/native/main.swift (atvv-link)  BLE ATVV 语音流 + IOHIDManager 旁听按键
-```
 
-> 代码在 `src/` 下（TypeScript），`sidecar/*.mjs`、`desktop/plugin.js` 是构建产物：改代码请改
-> `src/`，然后 `node dev/build.mjs`。约定见 [TYPESCRIPT.md](TYPESCRIPT.md)。
+> Code lives under `src/` (TypeScript); `sidecar/*.mjs` and `desktop/plugin.js`
+> are build products. Edit `src/`, then run `node dev/build.mjs`. Conventions:
+> [TYPESCRIPT.md](TYPESCRIPT.md).
 
-**判断一条改动该落在哪层**：换了遥控器 → 适配层；换了识别模型 → 服务层（`sidecar/stt/`）；换了 UI → 渲染层；
-新增一种「动作」（比如「打开某 App」）→ 服务层 + 渲染层的动作下拉。传输层只在协议变化时才动。
+**Where a change belongs:**
 
----
-
-## 2. 适配层：型号是数据，不是代码
-
-一台遥控器 = `sidecar/devices/<id>.json`。代码里没有任何 `if (型号 === '小米')`。
-
-| 字段 | 作用 | 谁读它 |
-|---|---|---|
-| `id` | 稳定标识，配置与事件里都用它 | 全部 |
-| `label` / `vendor` | 页面展示 | 渲染层 |
-| `match.vendorIds` / `productIds` | HID 设备匹配（十进制 VID/PID） | 桥（间接）、匹配逻辑 |
-| `match.nameHints` | 桥上报的 `device` 名 → 型号（双向包含匹配，容忍昵称） | `profileForDeviceName()` |
-| `hidPairs` | 旁听白名单，原样传给桥 `--hid-device` | `bridgeArgs` |
-| `pages` | 该型号会上报的 usage page | 桥 `--hid-pages` |
-| `keys` | `page/usage` → `KeyboardEvent.code`，**只写这台特有的键** | `codeFor()` |
-| `hidKeys` | 允许进入事件流的 code 白名单（漏一个就是这个键完全没反应） | 服务层 |
-| `defaultKeyMap` | 该型号的默认动作；用户 `settings.json` 里的 keyMap 永远压过它 | 服务层 |
-| `voiceHint` / `notes` | 页面提示与已知限制 | 渲染层 |
-
-`_base.json` 放 HID Usage Tables 的标准键（键盘页 0x07、Consumer 页 0x0C 的音量与 Back），所有型号共享。
-合并顺序：`_base` → 内置型号 → 用户型号（`<state dir>/devices/*.json`，同名 `id` 覆盖）。
-
-### 新增一台遥控器的成本
-
-1. `hidutil list` 拿 VID/PID，`atvv-link --hid --list 4` 确认能连；
-2. 抄一份 JSON，填 `keys`（未定名的键从 `daemon.log` 的 `[hid] unmapped page=… usage=…` 里读，配合厂商 keylayout 或 HID Usage Tables 定名）；
-3. `POST /devices/reload` —— 注册表重读、桥参数重算、连接重启，**不重启守护进程、不重启 Hermes**。
-
-这就是「热插拔」：型号是运行时可加载的数据。桥的页放行与设备白名单同样来自注册表（`--hid-pages` / `--hid-device`），
-所以新遥控器不需要重新编译 Swift。
-
----
-
-## 3. 页面联动：框 1 决定框 2
-
-「遥控器」卡里选中的设备决定 `/state.profileId`，「按键映射」卡只渲染**该型号的键**（`profiles[i].keys`），
-再并上用户手动加过的键（型号不支持的标「未知」，不隐藏）。切设备后两者同时变。
-
-同一份 `keyMap` 是全局的：动作语义一致（`Back → 停止生成`），型号决定「哪些键存在」。
-好处是切回小米时不需要重新配置；坏处是两台都有的键（Back）改一次等于两台都改 —— 这是刻意的，
-因为用户的心智是「Back 就该停生成」，不是「小米的 Back」。
-
----
-
-## 4. 依赖：模型与运行时不在仓库里
-
-| 依赖 | 策略 |
+| Change | Layer |
 |---|---|
-| 语音模型（SenseVoice int8 ~250MB / fp32 ~900MB、Silero VAD） | 不进 git。三档：① `scripts/fetch-models.mjs` 下载（支持 Range 续传、sha256、`--from` 离线导入）；② 页面填本地路径；③ 外部 OpenAI 兼容 STT（`sttBaseUrl`/`sttModel`/`sttApiKey`），完全不用本地模型 |
-| `sherpa-onnx-node`（原生 .node） | sidecar 的 npm 依赖，按平台安装；解析顺序 `REMOTE_MIC_SHERPA` → sidecar/node_modules → 宿主路径 |
-| Node 运行时 | 用宿主的 node（`~/.hermes/tools/node-*`），不打包 |
-| 蓝牙桥二进制 | 仓库里带编译好的 universal 二进制，源码同仓库（`build.sh` 可重建） |
-
-判据：页面「识别」卡显示模型状态（路径 / 体积 / 是否加载），缺失时给下载命令而不是静默失败。
-
----
-
-## 5. 权限与边界
-
-- **蓝牙（TCC）**：连接遥控器（ATVV 推流）与旁听 HID 都需要，首次由系统弹窗授权，`IOHIDManager` 只读不拦。
-- **键盘**：声音与按键都不写系统输入法，文字只进 Hermes 的输入框；「捕获键盘按键」默认关，开了才接管物理键盘的 Enter/Home。
-- **音量键拦不住**：遥控器是系统级 HID，音量 ±/静音由 `AppleUserHIDEventService` 在系统层消费；插件只旁听。
-  Power / Netflix / YouTube 同理（锁屏、拉起播放器），所以这三个默认只识别不动作。
-- **按键归属**：默认只有「当前生效的那台」的按键产生动作（语音键本来就只走连上的那台），另一台的按键记一条日志后丢弃。
-  可切成「两台都认」。
-- **音频不出本机**：识别全本地；日志不含音频内容与蓝牙地址。
+| a different remote | adapter (`sidecar/devices/*.json`) |
+| a different recognition model | service (`sidecar/stt/`) |
+| a different UI | renderer |
+| a new kind of action (for example "open an app") | service + the renderer's action dropdown |
+| a protocol change | transport (only then) |
 
 ---
 
-## 6. 已知取舍
+## 2. Adapter layer: the model is data, not code
 
-- `keyMap` 不做「按型号分表」，理由见 §3。真要分表，加一层 `keyMapByProfile` 即可，不破坏现有配置。
-- 桥的 HID 旁听是**进程级**的：只要守护进程活着，两台遥控器的 HID 事件都会进来，过滤在服务层做（因为设备名只有桥知道）。
-- 网关新增路由不热重扫：`/devices`、`/devices/reload`、`/capture` 这类后加的路由要重启一次网关（应用重启≠网关重启）。
-  服务层同时提供 8791 直连与 `/state` 里缓存字段做降级，页面不会因此白屏。
+One remote is one file, `sidecar/devices/<id>.json`. Nothing in the code says
+`if (model === 'Xiaomi')`.
+
+| Field | Purpose | Read by |
+|---|---|---|
+| `id` | stable identifier used in config and events | everything |
+| `label` / `vendor` | shown on the page | renderer |
+| `match.vendorIds` / `productIds` | HID device match (decimal VID/PID) | bridge (indirectly), matching logic |
+| `match.nameHints` | name the bridge reports -> model (contains match in both directions, tolerates nicknames) | `profileForDeviceName()` |
+| `hidPairs` | sniffing allow-list, passed verbatim to the bridge as `--hid-device` | `bridgeArgs` |
+| `pages` | usage pages this model reports | bridge `--hid-pages` |
+| `keys` | `page/usage` -> `KeyboardEvent.code`, **only this model's specific keys** | `codeFor()` |
+| `hidKeys` | allow-list of codes permitted into the event stream (miss one and the key does nothing at all) | service |
+| `defaultKeyMap` | this model's default actions; a user `keyMap` in `settings.json` always wins | service |
+| `voiceHint` / `notes` | page hint and known limitations | renderer |
+
+`_base.json` holds the standard HID Usage Tables keys (keyboard page `0x07`,
+Consumer page `0x0C` volume and Back) shared by every model. Merge order:
+`_base` -> built-in models -> user models (`<state dir>/devices/*.json`, same
+`id` replaces the built-in one).
+
+### The cost of adding a remote
+
+1. `hidutil list` for VID/PID; `atvv-link --hid --list 4` to confirm it
+   connects.
+2. Copy a JSON file and fill in `keys` (unnamed keys come from
+   `daemon.log` lines shaped `[hid] unmapped page=... usage=...`, named with the
+   vendor keylayout or the HID Usage Tables).
+3. `POST /devices/reload` -- the registry is re-read, bridge arguments are
+   recomputed, and the link restarts. **No daemon restart, no Hermes restart.**
+
+That is the hot-plug property: the model is runtime-loadable data. The bridge's
+page allow-list and device allow-list also come from the registry
+(`--hid-pages` / `--hid-device`), so a new remote needs no Swift rebuild.
+
+---
+
+## 3. Page coupling: box 1 decides box 2
+
+The device selected in the "Remote" card sets `/state.profileId`, and the "Key
+mapping" card renders **only that model's keys** (`profiles[i].keys`), unioned
+with keys the user added manually (keys the model cannot produce are labelled
+"unknown", not hidden). Switching remotes changes both at once.
+
+The same `keyMap` is global: action semantics stay consistent (`Back` -> stop
+generation), while the model decides which keys exist. The benefit is that
+switching back to the Xiaomi needs no reconfiguration; the cost is that a key
+present on both remotes (`Back`) is changed for both at once. That is
+deliberate: the user's mental model is "Back stops generation", not "the
+Xiaomi's Back".
+
+---
+
+## 4. Dependencies: models and runtimes are not in the repository
+
+| Dependency | Strategy |
+|---|---|
+| speech models (SenseVoice int8 ~250 MB / fp32 ~900 MB, Silero VAD) | never in git. Three routes: (1) `scripts/fetch-models.mjs` (Range resume, sha256, `--from` for offline import); (2) a local path set through the page/API; (3) an external OpenAI-compatible STT service (`sttBaseUrl`/`sttModel`/`sttApiKey`), no local model at all |
+| `sherpa-onnx-node` (native `.node`) | an npm dependency of the sidecar, installed per platform; resolution `BATON_SHERPA` -> `sidecar/node_modules` -> host paths |
+| Node runtime | the host's node (`~/.hermes/tools/node-*`), not bundled |
+| Bluetooth bridge binary | a compiled universal binary in the repo, sources in the same repo (`build.sh` rebuilds it) |
+
+Criterion: the page's "Recognition" card shows model status (path, size, whether
+it is loaded) and, when something is missing, a download command instead of a
+silent failure.
+
+---
+
+## 5. Permissions and boundaries
+
+- **Bluetooth (TCC)**: needed both to connect the remote (ATVV streaming) and to
+  sniff HID. macOS prompts on first use; `IOHIDManager` is read-only and does
+  not intercept.
+- **Keyboard**: neither voice nor keys write into the system input method; text
+  only goes to the Hermes composer. "Capture keyboard keys" is off by default;
+  only when enabled does the plugin take over Enter/Home from the physical
+  keyboard.
+- **Volume keys cannot be intercepted**: the remote is a system-level HID
+  device, and volume up/down/mute are consumed by `AppleUserHIDEventService` at
+  the system layer; the plugin only observes. Power / Netflix / YouTube behave
+  the same way (lock screen, launch player), so those three are recognised but
+  bound to no action by default.
+- **Key ownership**: by default only the currently active remote produces
+  actions (the voice key only ever goes to the connected one); keys from the
+  other remote are logged once and dropped. This can be switched to "accept
+  both".
+- **Audio does not leave the machine**: recognition is fully local; the log
+  contains no audio content and no Bluetooth address.
+
+---
+
+## 6. Known trade-offs
+
+- `keyMap` is not split per model, for the reason in section 3. If it ever needs
+  to be, one more layer (`keyMapByProfile`) does it without breaking existing
+  configuration.
+- The bridge's HID sniffing is **process-level**: while the daemon is alive, HID
+  events from both remotes arrive, and filtering happens in the service layer
+  (because only the bridge knows the device name).
+- New gateway routes are not hot-rescanned: routes added later (`/devices`,
+  `/devices/reload`, `/capture`) need one gateway restart (an app restart is not
+  a gateway restart). The service layer also offers a direct 8791 connection
+  and cached fields in `/state` as a fallback, so the page never goes blank.

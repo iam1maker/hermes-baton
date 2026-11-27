@@ -1,52 +1,65 @@
-# 提交信息约定
+# Commit conventions
 
-和 [iam1maker/hermes-bark](https://github.com/iam1maker/hermes-bark) 保持同一套写法——就是那个仓库
-GitHub 提交列表里看到的样子。下面是可执行的规则，不是风格偏好。
+The same shape as [iam1maker/hermes-bark](https://github.com/iam1maker/hermes-bark)
+-- what you see in this repository's commit list. These are rules, not style
+preferences.
 
-## 形状
+## Shape
 
-```
+```text
 type(scope): imperative lowercase sentence
 
-为什么（问题是什么、哪条实测把根因钉死的）
-怎么改的、改了哪几处
-- 需要时用列表
+why (what the problem was, which measurement pinned the root cause)
+how it was changed, and where
+- use a list when there is more than one place
 
-Tests: bash tests/run.sh → 72 PASS（可验证行为才写这一行）
+Tests: bash tests/run.sh -> 73 assertions, 5/5 suites passed (only when behaviour was verifiable)
 ```
 
-- **type** 只能是 `feat` / `fix` / `refactor` / `perf` / `docs` / `test` / `build` / `ci` /
-  `chore` / `revert`。不要自造组合类型：`state:`、`docs+install:`、`rename:` 都不合法。
-- **scope** 可选、单数小写，用这一层真正改动的地方：`baton`、`sidecar`、`desktop`、
-  `dashboard`、`install`、`docs`、`ts`。`fix(gateway)` 只在网关代码真的改了时才用；
-  插件自己的 manifest 写错名字属于 `fix(dashboard)`。
-- **标题行**：祈使句、全小写、无 emoji、无句号、≤ 72 列。说清「改了什么」，
-  一个逗号并列两件事就是两条提交。
-- **正文**：空行后开始，78 列换行。先写为什么（含实测证据），再写改了哪几处。
-- **一条提交一件事**：代码和文档不要混在同一条里；同一条里应当能用一句话讲完。
+- **type** is one of `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`,
+  `ci`, `chore`, `revert`. Do not invent compound types: `state:`,
+  `docs+install:` and `rename:` are not valid.
+- **scope** is optional, singular, lowercase, and names the layer that actually
+  changed: `baton`, `sidecar`, `desktop`, `dashboard`, `install`, `docs`, `ts`.
+  Use `fix(gateway)` only when gateway code changed; a wrong `name` in the
+  plugin's own manifest is `fix(dashboard)`.
+- **subject line**: imperative, all lowercase, no emoji, no trailing period, at
+  most 72 columns. Say what changed. Two things joined by a comma are two
+  commits.
+- **body**: after one blank line, wrapped at 78 columns. Why first (including
+  the evidence that proved it), then what changed where.
+- **one change per commit**: code and docs do not share a commit, and the whole
+  commit should be explainable in one sentence.
 
-## 判断标准
+## What a good commit looks like
 
-一条提交读起来应该像：
-
-- `feat(bark): send-only Bark iOS push platform with desktop settings page`
-- `fix: report the credential source the same way secret() resolves it`
-- `refactor(settings): read credentials through agent.secret_scope.get_secret`
+- `feat(baton): BLE voice remote as a Hermes input surface`
 - `fix(install): keep the desktop copy marker-less so the pane shows on boot`
+- `refactor(ts): rewrite the plugin's JavaScript surface in TypeScript`
+- `fix(docs): drop the curl pipes the installer scanner flags as supply chain`
 
-而不是：
+## What it should not look like
 
 - `rename to baton, BATON_* env vars with REMOTE_MIC_* fallback, docs for one-line install`
-  （三个关注点挤在一行、没有 type）
-- `state: keys.map shows only…`（`state` 不是我编的合法 type）
+  -- three concerns on one line, no type
+- `state: keys.map shows only the current model's keys` -- `state` is not a
+  valid type
 
-## 产物与源码同条提交
+## Products ship with their sources
 
-`src/` 是源码，`sidecar/**/*.mjs`、`desktop/plugin.js`、`scripts/*.mjs`、`tests/*.mjs` 是构建产物
-（见 [docs/TYPESCRIPT.md](docs/TYPESCRIPT.md)）。改完源要 `node dev/build.mjs`，**产物必须和源码
-一起提交**——否则装到 profile 里的还是旧代码。提交前自查：
+`src/` is the source; `sidecar/**/*.mjs`, `desktop/plugin.js`, `scripts/*.mjs`
+and `tests/*.mjs` are build products (see
+[docs/TYPESCRIPT.md](docs/TYPESCRIPT.md)). After editing a source, run
+`node dev/build.mjs`, and **commit the products in the same commit** -- otherwise
+the profile keeps running the old code. Check before you commit:
 
 ```bash
 node dev/typecheck.mjs && node dev/build.mjs && bash tests/run.sh
-git status --porcelain          # 不该再出现「产物已改但没提交」
+git status --porcelain          # no "product changed but not staged"
 ```
+
+## Scope of a change
+
+Keep documentation and metadata in sync with behaviour in the same commit:
+`plugin.yaml`'s `label`, `dashboard/manifest.json`'s `name`/`label`, and the
+README's claims are all part of the change that alters them.
