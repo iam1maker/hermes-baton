@@ -7,9 +7,10 @@ count is the i18n payload (src/desktop/i18n/zh.ts). Escaped device names
 text itself is ASCII.
 
 Usage:
-  python3 cjk-scan.py <root> [--show N]
+  python3 cjk-scan.py <root> [--allow REL]... [--show N]
 
-Exit code: 0 when nothing is found, 1 when at least one file has CJK.
+Exit code: 0 when the only files with CJK are the allowed ones, 1 otherwise
+(the default allow-list is the i18n payload, src/desktop/i18n/zh.ts).
 Skips binaries, .git and node_modules; reports one line per file plus a total,
 sorted by count descending so the worst offender is on top.
 """
@@ -62,6 +63,13 @@ def main() -> int:
         i = args.index('--show')
         show = int(args[i + 1])
         del args[i:i + 2]
+    allowed = []
+    while '--allow' in args:
+        i = args.index('--allow')
+        allowed.append(os.path.normpath(args[i + 1]))
+        del args[i:i + 2]
+    if not allowed:
+        allowed = [os.path.normpath('src/desktop/i18n/zh.ts')]
     root = args[0] if args else '.'
     rows = scan(root)
     for count, lines, rel in rows:
@@ -77,7 +85,12 @@ def main() -> int:
                     show -= 1
                     if show <= 0:
                         break
-    return 0 if not rows else 1
+    unexpected = [rel for _, _, rel in rows if os.path.normpath(rel) not in allowed]
+    if unexpected:
+        print('Outside the allow-list: ' + ', '.join(unexpected))
+        return 1
+    print('Only the allow-listed i18n payload has CJK.')
+    return 0
 
 
 if __name__ == '__main__':
