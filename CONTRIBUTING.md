@@ -9,7 +9,10 @@ preferences.
 `main` is protected for everyone, the owner included:
 
 - no direct pushes (`Changes must be made through a pull request`);
-- the `build-and-test` check from `.github/workflows/ci.yml` must be green;
+- the `build-and-test` check from `.github/workflows/ci.yml` must be green -- and a
+  pull request does not run CI until someone adds the `run-ci` label, so it sits at
+  `Expected` until then (deliberate: a stranger's pull request must not spend a
+  runner before anyone has read the diff);
 - the branch must be up to date with `main` before it merges (`strict`), so the
   check you saw green is the tree you merge;
 - linear history, squash or rebase merge (merge commits are disabled);
@@ -21,6 +24,7 @@ git switch -c fix/device-switch-timeout    # feat/..., fix/..., docs/..., chore/
 # ...edit, then rebuild and test, then commit...
 git push -u origin fix/device-switch-timeout
 gh pr create --fill      # the template asks for the evidence
+gh pr edit --add-label run-ci   # starts CI; every later push re-runs it
 gh pr checks --watch     # waits for build-and-test
 gh pr merge --squash --delete-branch
 ```
