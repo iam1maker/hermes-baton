@@ -481,8 +481,10 @@ the same key shape); nothing else in this repository contains non-English
 prose. [`ACCEPTANCE.md`](ACCEPTANCE.md) records how each feature was verified
 on real hardware, with the measured evidence.
 
-CI runs the same gates on every push and pull request
-(`.github/workflows/ci.yml`, macOS runner, no hardware): typecheck, build, a
+CI runs the same gates on every push to `main`, and on a pull request only after
+a maintainer adds the `run-ci` label (`gh pr edit <n> --add-label run-ci`) -- a
+new pull request starts with no check run at all. Every gate is hardware-free
+(`.github/workflows/ci.yml`, ubuntu runner): typecheck, build, a
 dirty-tree check so a stale generated product cannot be committed, the five test
 suites, `node --check` on the shipped products, and `scripts/cjk-scan.py`.
 
@@ -501,7 +503,9 @@ Two repository rules exist because they were learned the hard way:
 
 `main` is protected: every change lands through a branch and a pull request with
 a green `build-and-test` check, squash-merged, and direct pushes are refused even
-for the owner. The branch naming, the pull-request template and the commit shape
+for the owner. Because a pull request only runs CI once it carries the `run-ci`
+label, an unlabeled one sits at `Expected — Waiting for status to be reported`
+and cannot merge; that is the intended shape, not a stuck check. The branch naming, the pull-request template and the commit shape
 are in [`CONTRIBUTING.md`](CONTRIBUTING.md). For a new remote,
 [`docs/ADD-A-DEVICE.md`](docs/ADD-A-DEVICE.md) is the whole procedure; no Swift
 build is involved.

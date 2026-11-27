@@ -8,12 +8,27 @@ on:
   push:
     branches: [main]
   pull_request:
+    # A pull request runs nothing until a maintainer applies the `run-ci` label, and then it
+    # keeps running on every push while that label is present. `opened` and `reopened` are
+    # deliberately absent: a workflow that fires and then skips its only job leaves a
+    # *skipped* required check, which branch protection counts as satisfied.
+    types: [labeled, synchronize]
 
 permissions:
   contents: read
 
+concurrency:
+  # One run per ref: a new push cancels the previous run instead of queueing behind it.
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-and-test:
+    # `main` always runs. A pull request runs only after a maintainer decides it is worth a
+    # runner: add the `run-ci` label (gh pr edit <n> --add-label run-ci).
+    if: >-
+      github.event_name == 'push' ||
+      contains(github.event.pull_request.labels.*.name, 'run-ci')
     # Linux runner: nothing here needs macOS (the Swift bridge is not built in CI),
     # and esbuild 0.28.2 output is byte-identical across platforms, which is what
     # the dirty-tree check below relies on.
