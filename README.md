@@ -482,9 +482,17 @@ prose. [`ACCEPTANCE.md`](ACCEPTANCE.md) records how each feature was verified
 on real hardware, with the measured evidence.
 
 CI runs the same gates on every push to `main`, and on a pull request only after
-a maintainer adds the `run-ci` label (`gh pr edit <n> --add-label run-ci`) -- a
-new pull request starts with no check run at all, and a push that lands after the
-label needs the label removed and re-added to be checked again. Listening
+the owner adds the `run-ci` label (`gh pr edit <n> --add-label run-ci`) -- a new
+pull request starts with no check run at all, and a push that lands after the
+label needs the label removed and re-added to be checked again. Whether CI runs is
+the owner's decision, enforced in two places because one is not enough:
+
+- the workflow is wired to `pull_request_target`, which is always read from
+  `main`, so a pull request cannot relax the gate in its own copy of this file;
+- the repository requires approval for workflow runs from **every** external
+  contributor (`all_external_contributors`), so a fork pull request's runs wait at
+  `action_required` until the owner approves them — necessary because a
+  `pull_request` trigger declared in a head branch still starts a run (measured). Listening
 to only the `labeled` event is deliberate: any other pull_request event would
 report a *skipped* required check, which branch protection counts as satisfied. Every gate is hardware-free
 (`.github/workflows/ci.yml`, ubuntu runner): typecheck, build, a

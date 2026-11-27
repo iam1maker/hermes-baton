@@ -687,3 +687,27 @@ the pull request's merge gate does not accept it.
 
 Main is unaffected: pushes to `main` run unconditionally and the gate is the same job
 (`45957203239` `push` `completed/success` on `c8d1792`).
+
+## Who is allowed to start CI (2026-11-27, measured)
+
+The label gate above answers "does a pull request start a runner by itself". It does not answer
+"could someone start one anyway". Two more probes:
+
+| Probe | Reading |
+| --- | --- |
+| pull request #9: head branch deletes the gate from `ci.yml` | `build-and-test completed/success`, no label, no approval -- a `pull_request` event reads the **head** copy of the workflow |
+| pull request #11: same, with a CJK file added under `docs/` | `build-and-test completed/failure` (at `scripts/cjk-scan.py`), i.e. the run really executed the head tree |
+| `GET /actions/permissions/fork-pr-contributor-approval` before | `{"approval_policy":"first_time_contributors"}` -- anyone who had contributed once ran freely |
+| the same call after `PUT {"approval_policy":"all_external_contributors"}` | `all_external_contributors` |
+
+So the gate is enforced in two places, and both are needed:
+
+- `.github/workflows/ci.yml` listens to `pull_request_target`, which is read from `main` only, so
+  the copy of the file inside a pull request cannot relax the trigger. It checks out
+  `github.event.pull_request.head.sha` so the suite still runs on the pull request's tree.
+- The repository requires approval for every run from an external contributor, which is what
+  catches a head branch that declares `on: pull_request` itself -- that run waits at
+  `action_required` until the owner approves it.
+
+The remaining case is a same-repository branch, which only a collaborator with write access can
+create; `GET /collaborators` returns exactly one entry (`iam1maker`, admin).

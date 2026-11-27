@@ -10,11 +10,13 @@ preferences.
 
 - no direct pushes (`Changes must be made through a pull request`);
 - the `build-and-test` check from `.github/workflows/ci.yml` must be green -- and a
-  pull request does not run CI until someone adds the `run-ci` label, so it sits at
+  pull request does not run CI until the owner adds the `run-ci` label, so it sits at
   `Expected` until then (deliberate: a stranger's pull request must not spend a
   runner before anyone has read the diff). Only the `labeled` event is wired, so a
   push after the label leaves the check at `Expected` until the label is dropped
-  and re-added;
+  and re-added. Outside contributors additionally need approval for each run
+  (`all_external_contributors`), because a `pull_request` trigger written into a
+  head branch still starts a run;
 - the branch must be up to date with `main` before it merges (`strict`), so the
   check you saw green is the tree you merge;
 - linear history, squash or rebase merge (merge commits are disabled);
